@@ -1,0 +1,9 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "magnitude",
+    srcs = ["magnitude.go"],
+    importpath = "github.com/ilhamster/traceviz/server/go/magnitude",
+    visibility = ["//visibility:public"],
+    deps = ["//util"],
+)

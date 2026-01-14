@@ -1,0 +1,22 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "query_dispatcher",
+    srcs = ["query_dispatcher.go"],
+    importpath = "github.com/ilhamster/traceviz/server/go/query_dispatcher",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//util",
+        "@org_golang_x_sync//errgroup",
+    ],
+)
+
+go_test(
+    name = "query_dispatcher_test",
+    srcs = ["query_dispatcher_test.go"],
+    embed = [":query_dispatcher"],
+    deps = [
+        "//util",
+        "@com_github_google_go_cmp//cmp",
+    ],
+)

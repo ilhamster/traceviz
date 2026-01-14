@@ -1,0 +1,5 @@
+# gazelle:prefix github.com/ilhamster/traceviz/server/go
+
+load("@gazelle//:def.bzl", "gazelle")
+
+gazelle(name = "gazelle")

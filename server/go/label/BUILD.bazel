@@ -1,0 +1,9 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "label",
+    srcs = ["label.go"],
+    importpath = "github.com/ilhamster/traceviz/server/go/label",
+    visibility = ["//visibility:public"],
+    deps = ["//util"],
+)

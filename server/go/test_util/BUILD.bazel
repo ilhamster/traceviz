@@ -1,0 +1,19 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "test_util",
+    srcs = ["test_util.go"],
+    importpath = "github.com/ilhamster/traceviz/server/go/test_util",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//util",
+        "@com_github_google_go_cmp//cmp",
+    ],
+)
+
+go_test(
+    name = "test_util_test",
+    srcs = ["test_util_test.go"],
+    embed = [":test_util"],
+    deps = ["//util"],
+)

@@ -1,0 +1,9 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "category_axis",
+    srcs = ["category_axis.go"],
+    importpath = "github.com/ilhamster/traceviz/server/go/category_axis",
+    visibility = ["//visibility:public"],
+    deps = ["//util"],
+)

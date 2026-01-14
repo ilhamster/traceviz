@@ -1,0 +1,16 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "handlers",
+    srcs = [
+        "asset_handler.go",
+        "query_handler.go",
+    ],
+    importpath = "github.com/ilhamster/traceviz/server/go/handlers",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//query_dispatcher",
+        "//util",
+        "@com_github_google_safehtml//:safehtml",
+    ],
+)

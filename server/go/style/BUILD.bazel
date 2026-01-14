@@ -1,0 +1,9 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "style",
+    srcs = ["style.go"],
+    importpath = "github.com/ilhamster/traceviz/server/go/style",
+    visibility = ["//visibility:public"],
+    deps = ["//util"],
+)

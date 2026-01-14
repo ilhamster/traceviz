@@ -1,0 +1,29 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "bar_chart",
+    srcs = ["bar_chart.go"],
+    importpath = "github.com/ilhamster/traceviz/server/go/bar_chart",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//category",
+        "//category_axis",
+        "//continuous_axis",
+        "//util",
+    ],
+)
+
+go_test(
+    name = "bar_chart_test",
+    srcs = ["bar_chart_test.go"],
+    embed = [":bar_chart"],
+    deps = [
+        "//category",
+        "//category_axis",
+        "//color",
+        "//continuous_axis",
+        "//label",
+        "//test_util",
+        "//util",
+    ],
+)

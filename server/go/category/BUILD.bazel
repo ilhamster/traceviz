@@ -1,0 +1,19 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "category",
+    srcs = ["category.go"],
+    importpath = "github.com/ilhamster/traceviz/server/go/category",
+    visibility = ["//visibility:public"],
+    deps = ["//util"],
+)
+
+go_test(
+    name = "category_test",
+    srcs = ["category_test.go"],
+    embed = [":category"],
+    deps = [
+        "//test_util",
+        "//util",
+    ],
+)

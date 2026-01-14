@@ -1,0 +1,31 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "weighted_tree",
+    srcs = [
+        "walk.go",
+        "weighted_tree.go",
+    ],
+    importpath = "github.com/ilhamster/traceviz/server/go/weighted_tree",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//magnitude",
+        "//util",
+    ],
+)
+
+go_test(
+    name = "weighted_tree_test",
+    srcs = [
+        "walk_test.go",
+        "weighted_tree_test.go",
+    ],
+    embed = [":weighted_tree"],
+    deps = [
+        "//magnitude",
+        "//payload",
+        "//test_util",
+        "//util",
+        "@com_github_google_go_cmp//cmp",
+    ],
+)

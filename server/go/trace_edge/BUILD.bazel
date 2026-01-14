@@ -1,0 +1,26 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "trace_edge",
+    srcs = ["trace_edge.go"],
+    importpath = "github.com/ilhamster/traceviz/server/go/trace_edge",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//continuous_axis",
+        "//payload",
+        "//util",
+    ],
+)
+
+go_test(
+    name = "trace_edge_test",
+    srcs = ["trace_edge_test.go"],
+    embed = [":trace_edge"],
+    deps = [
+        "//category",
+        "//continuous_axis",
+        "//payload",
+        "//test_util",
+        "//util",
+    ],
+)

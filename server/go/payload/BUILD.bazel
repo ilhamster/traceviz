@@ -1,0 +1,19 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "payload",
+    srcs = ["payload.go"],
+    importpath = "github.com/ilhamster/traceviz/server/go/payload",
+    visibility = ["//visibility:public"],
+    deps = ["//util"],
+)
+
+go_test(
+    name = "payload_test",
+    srcs = ["payload_test.go"],
+    embed = [":payload"],
+    deps = [
+        "//test_util",
+        "//util",
+    ],
+)

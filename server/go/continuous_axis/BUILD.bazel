@@ -1,0 +1,23 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "continuous_axis",
+    srcs = ["continuous_axis.go"],
+    importpath = "github.com/ilhamster/traceviz/server/go/continuous_axis",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//category",
+        "//util",
+    ],
+)
+
+go_test(
+    name = "continuous_axis_test",
+    srcs = ["continuous_axis_test.go"],
+    embed = [":continuous_axis"],
+    deps = [
+        "//category",
+        "//test_util",
+        "//util",
+    ],
+)

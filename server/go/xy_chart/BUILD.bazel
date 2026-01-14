@@ -1,0 +1,26 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "xy_chart",
+    srcs = ["xy_chart.go"],
+    importpath = "github.com/ilhamster/traceviz/server/go/xy_chart",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//category",
+        "//continuous_axis",
+        "//util",
+    ],
+)
+
+go_test(
+    name = "xy_chart_test",
+    srcs = ["xy_chart_test.go"],
+    embed = [":xy_chart"],
+    deps = [
+        "//category",
+        "//color",
+        "//continuous_axis",
+        "//test_util",
+        "//util",
+    ],
+)
