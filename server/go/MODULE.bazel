@@ -13,6 +13,7 @@ go_sdk.download(
     name = "go_sdk",
     version = "1.24.0",
 )
+go_sdk.nogo(nogo = "//:nogo")
 use_repo(go_sdk, "go_sdk")
 
 go_deps = use_extension("@gazelle//:extensions.bzl", "go_deps")
@@ -22,4 +23,5 @@ use_repo(
     "com_github_google_go_cmp",
     "com_github_google_safehtml",
     "org_golang_x_sync",
+    "org_golang_x_tools",
 )
