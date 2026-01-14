@@ -21,12 +21,12 @@ import (
 	"os"
 	"path"
 
-	logreader "github.com/google/traceviz/logviz/analysis/log_reader"
-	logtrace "github.com/google/traceviz/logviz/analysis/log_trace"
-	datasource "github.com/google/traceviz/logviz/data_source"
-	"github.com/google/traceviz/server/go/handlers"
-	querydispatcher "github.com/google/traceviz/server/go/query_dispatcher"
 	"github.com/hashicorp/golang-lru/simplelru"
+	logreader "github.com/ilhamster/traceviz/logviz/analysis/log_reader"
+	logtrace "github.com/ilhamster/traceviz/logviz/analysis/log_trace"
+	datasource "github.com/ilhamster/traceviz/logviz/data_source"
+	"github.com/ilhamster/traceviz/server/go/handlers"
+	querydispatcher "github.com/ilhamster/traceviz/server/go/query_dispatcher"
 )
 
 type collectionFetcher struct {

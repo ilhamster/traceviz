@@ -19,8 +19,8 @@ import (
 	"fmt"
 	"net/http"
 
-	querydispatcher "github.com/google/traceviz/server/go/query_dispatcher"
-	"github.com/google/traceviz/server/go/util"
+	querydispatcher "github.com/ilhamster/traceviz/server/go/query_dispatcher"
+	"github.com/ilhamster/traceviz/server/go/util"
 )
 
 // HandlerFunc is a HTTP handler function.

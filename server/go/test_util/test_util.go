@@ -20,7 +20,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/google/traceviz/server/go/util"
+	"github.com/ilhamster/traceviz/server/go/util"
 )
 
 // UpdateComparator facilitates testing of PropertyUpdates, ensuring that a

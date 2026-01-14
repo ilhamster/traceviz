@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"time"
 
-	logtrace "github.com/google/traceviz/logviz/analysis/log_trace"
+	logtrace "github.com/ilhamster/traceviz/logviz/analysis/log_trace"
 )
 
 // simpleLogParser parses simple log message for the use of tests. See

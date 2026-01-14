@@ -23,13 +23,13 @@ import (
 	"strings"
 	"time"
 
-	logtrace "github.com/google/traceviz/logviz/analysis/log_trace"
-	"github.com/google/traceviz/server/go/category"
-	"github.com/google/traceviz/server/go/color"
-	continuousaxis "github.com/google/traceviz/server/go/continuous_axis"
-	"github.com/google/traceviz/server/go/table"
-	"github.com/google/traceviz/server/go/util"
 	"github.com/hashicorp/golang-lru/simplelru"
+	logtrace "github.com/ilhamster/traceviz/logviz/analysis/log_trace"
+	"github.com/ilhamster/traceviz/server/go/category"
+	"github.com/ilhamster/traceviz/server/go/color"
+	continuousaxis "github.com/ilhamster/traceviz/server/go/continuous_axis"
+	"github.com/ilhamster/traceviz/server/go/table"
+	"github.com/ilhamster/traceviz/server/go/util"
 )
 
 const (

@@ -20,8 +20,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/google/traceviz/server/go/category"
-	"github.com/google/traceviz/server/go/util"
+	"github.com/ilhamster/traceviz/server/go/category"
+	"github.com/ilhamster/traceviz/server/go/util"
 )
 
 const (

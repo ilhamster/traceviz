@@ -16,7 +16,7 @@ package testutil
 import (
 	"testing"
 
-	"github.com/google/traceviz/server/go/util"
+	"github.com/ilhamster/traceviz/server/go/util"
 )
 
 func TestUpdateComparator(t *testing.T) {

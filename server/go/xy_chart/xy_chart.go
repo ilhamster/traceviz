@@ -74,9 +74,9 @@ package xychart
 import (
 	"time"
 
-	"github.com/google/traceviz/server/go/category"
-	continuousaxis "github.com/google/traceviz/server/go/continuous_axis"
-	"github.com/google/traceviz/server/go/util"
+	"github.com/ilhamster/traceviz/server/go/category"
+	continuousaxis "github.com/ilhamster/traceviz/server/go/continuous_axis"
+	"github.com/ilhamster/traceviz/server/go/util"
 )
 
 // XYChart represents an xy-chart embedded in a TraceViz response.

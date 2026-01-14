@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	logtrace "github.com/google/traceviz/logviz/analysis/log_trace"
+	logtrace "github.com/ilhamster/traceviz/logviz/analysis/log_trace"
 
 	"github.com/google/go-cmp/cmp"
 )

@@ -150,7 +150,7 @@ critical path analysis has no place in the runtime analysis workflows Pprof
 supports.
 
 In TraceViz, flame graphs render low-semantic
-[weighted tree](https://github.com/google/traceviz/blob/main/server/go/weighted_tree/weighted_tree.go)
+[weighted tree](https://github.com/ilhamster/traceviz/blob/main/server/go/weighted_tree/weighted_tree.go)
 data: each node has a set of child nodes, and a `float` self-magnitude that is
 only used to calculate rendered width.  Any operations that would require
 high semantics, such as changing the weighting scheme or applying a new node

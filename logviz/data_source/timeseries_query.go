@@ -18,12 +18,12 @@ import (
 	"sort"
 	"time"
 
-	logtrace "github.com/google/traceviz/logviz/analysis/log_trace"
-	"github.com/google/traceviz/server/go/category"
-	"github.com/google/traceviz/server/go/color"
-	continuousaxis "github.com/google/traceviz/server/go/continuous_axis"
-	"github.com/google/traceviz/server/go/util"
-	xychart "github.com/google/traceviz/server/go/xy_chart"
+	logtrace "github.com/ilhamster/traceviz/logviz/analysis/log_trace"
+	"github.com/ilhamster/traceviz/server/go/category"
+	"github.com/ilhamster/traceviz/server/go/color"
+	continuousaxis "github.com/ilhamster/traceviz/server/go/continuous_axis"
+	"github.com/ilhamster/traceviz/server/go/util"
+	xychart "github.com/ilhamster/traceviz/server/go/xy_chart"
 )
 
 func handleTimeseriesQuery(coll *Collection, qf *queryFilters, series util.DataBuilder, reqOpts map[string]*util.V) error {

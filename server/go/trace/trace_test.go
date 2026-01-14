@@ -18,12 +18,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/traceviz/server/go/category"
-	categoryaxis "github.com/google/traceviz/server/go/category_axis"
-	continuousaxis "github.com/google/traceviz/server/go/continuous_axis"
-	"github.com/google/traceviz/server/go/payload"
-	testutil "github.com/google/traceviz/server/go/test_util"
-	"github.com/google/traceviz/server/go/util"
+	"github.com/ilhamster/traceviz/server/go/category"
+	categoryaxis "github.com/ilhamster/traceviz/server/go/category_axis"
+	continuousaxis "github.com/ilhamster/traceviz/server/go/continuous_axis"
+	"github.com/ilhamster/traceviz/server/go/payload"
+	testutil "github.com/ilhamster/traceviz/server/go/test_util"
+	"github.com/ilhamster/traceviz/server/go/util"
 )
 
 var (

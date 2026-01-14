@@ -73,7 +73,7 @@
 // color for a single type in multiple ways, the result is undefined.
 package color
 
-import "github.com/google/traceviz/server/go/util"
+import "github.com/ilhamster/traceviz/server/go/util"
 
 const (
 	// colorSpaceNamePrefix defines a color space.

@@ -17,11 +17,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/traceviz/server/go/category"
-	"github.com/google/traceviz/server/go/color"
-	continuousaxis "github.com/google/traceviz/server/go/continuous_axis"
-	testutil "github.com/google/traceviz/server/go/test_util"
-	"github.com/google/traceviz/server/go/util"
+	"github.com/ilhamster/traceviz/server/go/category"
+	"github.com/ilhamster/traceviz/server/go/color"
+	continuousaxis "github.com/ilhamster/traceviz/server/go/continuous_axis"
+	testutil "github.com/ilhamster/traceviz/server/go/test_util"
+	"github.com/ilhamster/traceviz/server/go/util"
 )
 
 const timeLayout = "Jan 2, 2006 at 3:04pm (MST)"

@@ -60,8 +60,8 @@
 package weightedtree
 
 import (
-	"github.com/google/traceviz/server/go/magnitude"
-	"github.com/google/traceviz/server/go/util"
+	"github.com/ilhamster/traceviz/server/go/magnitude"
+	"github.com/ilhamster/traceviz/server/go/util"
 )
 
 const (

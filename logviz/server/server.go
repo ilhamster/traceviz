@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/google/traceviz/logviz/service"
+	"github.com/ilhamster/traceviz/logviz/service"
 )
 
 var (

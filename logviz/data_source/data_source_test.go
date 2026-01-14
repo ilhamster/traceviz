@@ -21,16 +21,16 @@ import (
 	"testing"
 	"time"
 
-	logreader "github.com/google/traceviz/logviz/analysis/log_reader"
-	logtrace "github.com/google/traceviz/logviz/analysis/log_trace"
-	"github.com/google/traceviz/server/go/category"
-	"github.com/google/traceviz/server/go/color"
-	continuousaxis "github.com/google/traceviz/server/go/continuous_axis"
-	querydispatcher "github.com/google/traceviz/server/go/query_dispatcher"
-	"github.com/google/traceviz/server/go/table"
-	testutil "github.com/google/traceviz/server/go/test_util"
-	"github.com/google/traceviz/server/go/util"
-	xychart "github.com/google/traceviz/server/go/xy_chart"
+	logreader "github.com/ilhamster/traceviz/logviz/analysis/log_reader"
+	logtrace "github.com/ilhamster/traceviz/logviz/analysis/log_trace"
+	"github.com/ilhamster/traceviz/server/go/category"
+	"github.com/ilhamster/traceviz/server/go/color"
+	continuousaxis "github.com/ilhamster/traceviz/server/go/continuous_axis"
+	querydispatcher "github.com/ilhamster/traceviz/server/go/query_dispatcher"
+	"github.com/ilhamster/traceviz/server/go/table"
+	testutil "github.com/ilhamster/traceviz/server/go/test_util"
+	"github.com/ilhamster/traceviz/server/go/util"
+	xychart "github.com/ilhamster/traceviz/server/go/xy_chart"
 )
 
 var startTime = time.Date(2023, time.January, 1, 0, 0, 0, 0, time.UTC)
@@ -418,99 +418,99 @@ func TestQueries(t *testing.T) {
 		// 	},
 		// 	wantSeries: func(series util.DataBuilder) {
 		// 	},
-		}, {
-			description: "zoom in",
-			req: &util.DataRequest{
-				GlobalFilters: map[string]*util.V{
-					collectionNameKey: util.StringValue("log1"),
-					startTimestampKey: util.TimestampValue(ts(time.Minute * 0)),
-					endTimestampKey:   util.TimestampValue(ts(time.Minute * 30)),
-					zoomKey:           util.StringValue("in"),
-				},
-				SeriesRequests: []*util.DataSeriesRequest{
-					&util.DataSeriesRequest{
-						QueryName: panAndZoomQuery,
-					},
-				},
+	}, {
+		description: "zoom in",
+		req: &util.DataRequest{
+			GlobalFilters: map[string]*util.V{
+				collectionNameKey: util.StringValue("log1"),
+				startTimestampKey: util.TimestampValue(ts(time.Minute * 0)),
+				endTimestampKey:   util.TimestampValue(ts(time.Minute * 30)),
+				zoomKey:           util.StringValue("in"),
 			},
-			wantSeries: func(db util.DataBuilder) {
-				// Zooming into 30-minute range centered at 15m, with a zoom factor of 2,
-				// yields a 15-minute range centered at 15m.
-				db.With(
-					util.TimestampProperty(startTimestampKey, ts(time.Second*(7.5*60))),
-					util.TimestampProperty(endTimestampKey, ts(time.Second*(22.5*60))),
-				)
-			},
-		}, {
-			description: "zoom out",
-			req: &util.DataRequest{
-				GlobalFilters: map[string]*util.V{
-					collectionNameKey: util.StringValue("log1"),
-					startTimestampKey: util.TimestampValue(ts(time.Minute * 12)),
-					endTimestampKey:   util.TimestampValue(ts(time.Minute * 18)),
-					zoomKey:           util.StringValue("out"),
-				},
-				SeriesRequests: []*util.DataSeriesRequest{
-					&util.DataSeriesRequest{
-						QueryName: panAndZoomQuery,
-					},
+			SeriesRequests: []*util.DataSeriesRequest{
+				&util.DataSeriesRequest{
+					QueryName: panAndZoomQuery,
 				},
 			},
-			wantSeries: func(db util.DataBuilder) {
-				// Zooming out from a 6-minute range centered at 15m, with a zoom factor
-				// of 2, yields a 12-minute range centered at 15m.
-				db.With(
-					util.TimestampProperty(startTimestampKey, ts(time.Minute*9)),
-					util.TimestampProperty(endTimestampKey, ts(time.Minute*21)),
-				)
+		},
+		wantSeries: func(db util.DataBuilder) {
+			// Zooming into 30-minute range centered at 15m, with a zoom factor of 2,
+			// yields a 15-minute range centered at 15m.
+			db.With(
+				util.TimestampProperty(startTimestampKey, ts(time.Second*(7.5*60))),
+				util.TimestampProperty(endTimestampKey, ts(time.Second*(22.5*60))),
+			)
+		},
+	}, {
+		description: "zoom out",
+		req: &util.DataRequest{
+			GlobalFilters: map[string]*util.V{
+				collectionNameKey: util.StringValue("log1"),
+				startTimestampKey: util.TimestampValue(ts(time.Minute * 12)),
+				endTimestampKey:   util.TimestampValue(ts(time.Minute * 18)),
+				zoomKey:           util.StringValue("out"),
 			},
-		}, {
-			description: "pan left",
-			req: &util.DataRequest{
-				GlobalFilters: map[string]*util.V{
-					collectionNameKey: util.StringValue("log1"),
-					startTimestampKey: util.TimestampValue(ts(time.Minute * 12)),
-					endTimestampKey:   util.TimestampValue(ts(time.Minute * 18)),
-					panKey:            util.StringValue("left"),
-				},
-				SeriesRequests: []*util.DataSeriesRequest{
-					&util.DataSeriesRequest{
-						QueryName: panAndZoomQuery,
-					},
-				},
-			},
-			wantSeries: func(db util.DataBuilder) {
-				// Panning left in a 6-minute range centered at 15m yields a 6-minute
-				// range centered at 12m
-				db.With(
-					util.TimestampProperty(startTimestampKey, ts(time.Minute*9)),
-					util.TimestampProperty(endTimestampKey, ts(time.Minute*15)),
-				)
-			},
-		}, {
-			description: "pan right",
-			req: &util.DataRequest{
-				GlobalFilters: map[string]*util.V{
-					collectionNameKey: util.StringValue("log1"),
-					startTimestampKey: util.TimestampValue(ts(time.Minute * 12)),
-					endTimestampKey:   util.TimestampValue(ts(time.Minute * 18)),
-					panKey:            util.StringValue("right"),
-				},
-				SeriesRequests: []*util.DataSeriesRequest{
-					&util.DataSeriesRequest{
-						QueryName: panAndZoomQuery,
-					},
+			SeriesRequests: []*util.DataSeriesRequest{
+				&util.DataSeriesRequest{
+					QueryName: panAndZoomQuery,
 				},
 			},
-			wantSeries: func(db util.DataBuilder) {
-				// Panning left in a 6-minute range centered at 15m yields a 6-minute
-				// range centered at 18m
-				db.With(
-					util.TimestampProperty(startTimestampKey, ts(time.Minute*15)),
-					util.TimestampProperty(endTimestampKey, ts(time.Minute*21)),
-				)
+		},
+		wantSeries: func(db util.DataBuilder) {
+			// Zooming out from a 6-minute range centered at 15m, with a zoom factor
+			// of 2, yields a 12-minute range centered at 15m.
+			db.With(
+				util.TimestampProperty(startTimestampKey, ts(time.Minute*9)),
+				util.TimestampProperty(endTimestampKey, ts(time.Minute*21)),
+			)
+		},
+	}, {
+		description: "pan left",
+		req: &util.DataRequest{
+			GlobalFilters: map[string]*util.V{
+				collectionNameKey: util.StringValue("log1"),
+				startTimestampKey: util.TimestampValue(ts(time.Minute * 12)),
+				endTimestampKey:   util.TimestampValue(ts(time.Minute * 18)),
+				panKey:            util.StringValue("left"),
 			},
-		}} {
+			SeriesRequests: []*util.DataSeriesRequest{
+				&util.DataSeriesRequest{
+					QueryName: panAndZoomQuery,
+				},
+			},
+		},
+		wantSeries: func(db util.DataBuilder) {
+			// Panning left in a 6-minute range centered at 15m yields a 6-minute
+			// range centered at 12m
+			db.With(
+				util.TimestampProperty(startTimestampKey, ts(time.Minute*9)),
+				util.TimestampProperty(endTimestampKey, ts(time.Minute*15)),
+			)
+		},
+	}, {
+		description: "pan right",
+		req: &util.DataRequest{
+			GlobalFilters: map[string]*util.V{
+				collectionNameKey: util.StringValue("log1"),
+				startTimestampKey: util.TimestampValue(ts(time.Minute * 12)),
+				endTimestampKey:   util.TimestampValue(ts(time.Minute * 18)),
+				panKey:            util.StringValue("right"),
+			},
+			SeriesRequests: []*util.DataSeriesRequest{
+				&util.DataSeriesRequest{
+					QueryName: panAndZoomQuery,
+				},
+			},
+		},
+		wantSeries: func(db util.DataBuilder) {
+			// Panning left in a 6-minute range centered at 15m yields a 6-minute
+			// range centered at 18m
+			db.With(
+				util.TimestampProperty(startTimestampKey, ts(time.Minute*15)),
+				util.TimestampProperty(endTimestampKey, ts(time.Minute*21)),
+			)
+		},
+	}} {
 		t.Run(test.description, func(t *testing.T) {
 			ds, err := New(10, &testLogTraceFetcher{})
 			if err != nil {

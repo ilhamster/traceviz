@@ -24,7 +24,7 @@ package style
 import (
 	"fmt"
 
-	"github.com/google/traceviz/server/go/util"
+	"github.com/ilhamster/traceviz/server/go/util"
 )
 
 const (

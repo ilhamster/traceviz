@@ -29,7 +29,7 @@
 // should implement the Payloader interface.
 package payload
 
-import "github.com/google/traceviz/server/go/util"
+import "github.com/ilhamster/traceviz/server/go/util"
 
 const (
 	// TypeKey, if present in a Datum's properties, indicates that that datum is

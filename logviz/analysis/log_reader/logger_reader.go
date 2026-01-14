@@ -25,7 +25,7 @@ import (
 	"strings"
 	"time"
 
-	logtrace "github.com/google/traceviz/logviz/analysis/log_trace"
+	logtrace "github.com/ilhamster/traceviz/logviz/analysis/log_trace"
 )
 
 // TextLogReader converts a textual log (represented as a bufio.Reader)

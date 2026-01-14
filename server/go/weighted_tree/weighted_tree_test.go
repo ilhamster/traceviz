@@ -16,10 +16,10 @@ package weightedtree
 import (
 	"testing"
 
-	"github.com/google/traceviz/server/go/magnitude"
-	"github.com/google/traceviz/server/go/payload"
-	"github.com/google/traceviz/server/go/test_util"
-	"github.com/google/traceviz/server/go/util"
+	"github.com/ilhamster/traceviz/server/go/magnitude"
+	"github.com/ilhamster/traceviz/server/go/payload"
+	"github.com/ilhamster/traceviz/server/go/test_util"
+	"github.com/ilhamster/traceviz/server/go/util"
 )
 
 func name(name string) util.PropertyUpdate {

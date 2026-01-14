@@ -14,7 +14,7 @@
 // Package categoryaxis provides helpers for defining category axis data.
 package categoryaxis
 
-import "github.com/google/traceviz/server/go/util"
+import "github.com/ilhamster/traceviz/server/go/util"
 
 const (
 	categoryHeaderCatPxKey    = "category_header_cat_px"

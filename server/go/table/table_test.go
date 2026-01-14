@@ -16,10 +16,10 @@ package table
 import (
 	"testing"
 
-	"github.com/google/traceviz/server/go/category"
-	"github.com/google/traceviz/server/go/payload"
-	testutil "github.com/google/traceviz/server/go/test_util"
-	"github.com/google/traceviz/server/go/util"
+	"github.com/ilhamster/traceviz/server/go/category"
+	"github.com/ilhamster/traceviz/server/go/payload"
+	testutil "github.com/ilhamster/traceviz/server/go/test_util"
+	"github.com/ilhamster/traceviz/server/go/util"
 )
 
 var (

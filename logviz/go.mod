@@ -1,11 +1,11 @@
-module github.com/google/traceviz/logviz
+module github.com/ilhamster/traceviz/logviz
 
 go 1.20
 
 require (
 	github.com/google/go-cmp v0.5.9
-	github.com/google/traceviz/server/go v0.0.0
 	github.com/hashicorp/golang-lru v0.6.0
+	github.com/ilhamster/traceviz/server/go v0.0.0
 )
 
 require (
@@ -14,4 +14,4 @@ require (
 	golang.org/x/text v0.3.8 // indirect
 )
 
-replace github.com/google/traceviz/server/go => ../server/go
+replace github.com/ilhamster/traceviz/server/go => ../server/go

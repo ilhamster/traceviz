@@ -14,7 +14,7 @@
 // Package label supports labeling renderable items.
 package label
 
-import "github.com/google/traceviz/server/go/util"
+import "github.com/ilhamster/traceviz/server/go/util"
 
 const (
 	// labelFormatKey specifies the label format string used to label nodes.

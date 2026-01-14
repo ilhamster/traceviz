@@ -151,7 +151,7 @@
 package dot
 
 import (
-	"github.com/google/traceviz/server/go/util"
+	"github.com/ilhamster/traceviz/server/go/util"
 )
 
 const (

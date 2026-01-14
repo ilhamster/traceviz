@@ -19,12 +19,12 @@ import (
 	"strings"
 	"time"
 
-	logtrace "github.com/google/traceviz/logviz/analysis/log_trace"
-	"github.com/google/traceviz/server/go/category"
-	categoryaxis "github.com/google/traceviz/server/go/category_axis"
-	continuousaxis "github.com/google/traceviz/server/go/continuous_axis"
-	"github.com/google/traceviz/server/go/trace"
-	"github.com/google/traceviz/server/go/util"
+	logtrace "github.com/ilhamster/traceviz/logviz/analysis/log_trace"
+	"github.com/ilhamster/traceviz/server/go/category"
+	categoryaxis "github.com/ilhamster/traceviz/server/go/category_axis"
+	continuousaxis "github.com/ilhamster/traceviz/server/go/continuous_axis"
+	"github.com/ilhamster/traceviz/server/go/trace"
+	"github.com/ilhamster/traceviz/server/go/util"
 )
 
 type timeSeriesTreeNode struct {

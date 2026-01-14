@@ -33,9 +33,9 @@ package traceedge
 import (
 	"time"
 
-	continuousaxis "github.com/google/traceviz/server/go/continuous_axis"
-	"github.com/google/traceviz/server/go/payload"
-	"github.com/google/traceviz/server/go/util"
+	continuousaxis "github.com/ilhamster/traceviz/server/go/continuous_axis"
+	"github.com/ilhamster/traceviz/server/go/payload"
+	"github.com/ilhamster/traceviz/server/go/util"
 )
 
 const (

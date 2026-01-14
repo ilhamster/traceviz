@@ -14,7 +14,7 @@
 // Package magnitude supports attaching magnitudes to items.
 package magnitude
 
-import "github.com/google/traceviz/server/go/util"
+import "github.com/ilhamster/traceviz/server/go/util"
 
 const (
 	selfMagnitudeKey = "self_magnitude"

@@ -17,9 +17,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/traceviz/server/go/category"
-	testutil "github.com/google/traceviz/server/go/test_util"
-	"github.com/google/traceviz/server/go/util"
+	"github.com/ilhamster/traceviz/server/go/category"
+	testutil "github.com/ilhamster/traceviz/server/go/test_util"
+	"github.com/ilhamster/traceviz/server/go/util"
 )
 
 const timeLayout = "Jan 2, 2006 at 3:04pm (MST)"

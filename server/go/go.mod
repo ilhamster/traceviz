@@ -1,4 +1,4 @@
-module github.com/google/traceviz/server/go
+module github.com/ilhamster/traceviz/server/go
 
 go 1.20
 

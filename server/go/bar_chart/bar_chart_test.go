@@ -16,13 +16,13 @@ package barchart
 import (
 	"testing"
 
-	"github.com/google/traceviz/server/go/category"
-	categoryaxis "github.com/google/traceviz/server/go/category_axis"
-	"github.com/google/traceviz/server/go/color"
-	continuousaxis "github.com/google/traceviz/server/go/continuous_axis"
-	"github.com/google/traceviz/server/go/label"
-	testutil "github.com/google/traceviz/server/go/test_util"
-	"github.com/google/traceviz/server/go/util"
+	"github.com/ilhamster/traceviz/server/go/category"
+	categoryaxis "github.com/ilhamster/traceviz/server/go/category_axis"
+	"github.com/ilhamster/traceviz/server/go/color"
+	continuousaxis "github.com/ilhamster/traceviz/server/go/continuous_axis"
+	"github.com/ilhamster/traceviz/server/go/label"
+	testutil "github.com/ilhamster/traceviz/server/go/test_util"
+	"github.com/ilhamster/traceviz/server/go/util"
 )
 
 var (
