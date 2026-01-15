@@ -5,5 +5,5 @@ go_library(
     srcs = ["style.go"],
     importpath = "github.com/ilhamster/traceviz/server/go/style",
     visibility = ["//visibility:public"],
-    deps = ["//util"],
+    deps = ["//server/go/util"],
 )

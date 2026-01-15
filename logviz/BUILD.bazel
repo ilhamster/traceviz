@@ -1,0 +1,45 @@
+# gazelle:prefix github.com/ilhamster/traceviz/logviz
+# gazelle:exclude client
+
+load("@gazelle//:def.bzl", "gazelle")
+
+gazelle(name = "gazelle")
+
+sh_binary(
+    name = "build_go",
+    srcs = ["bazel_go.sh"],
+    args = ["build"],
+    visibility = ["//visibility:public"],
+)
+
+sh_binary(
+    name = "test_go",
+    srcs = ["bazel_go.sh"],
+    args = ["test"],
+    visibility = ["//visibility:public"],
+)
+
+sh_binary(
+    name = "build",
+    srcs = ["bazel_all.sh"],
+    args = ["build"],
+    visibility = ["//visibility:public"],
+)
+
+sh_binary(
+    name = "test",
+    srcs = ["bazel_all.sh"],
+    args = ["test"],
+    visibility = ["//visibility:public"],
+)
+
+sh_binary(
+    name = "run_server",
+    srcs = ["run_server.sh"],
+    args = [
+        "--server-bin",
+        "$(rootpath //logviz/server:server)",
+    ],
+    data = ["//logviz/server:server"],
+    visibility = ["//visibility:public"],
+)

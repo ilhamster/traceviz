@@ -1,0 +1,13 @@
+sh_binary(
+    name = "build",
+    srcs = ["bazel_npm.sh"],
+    args = ["build"],
+    visibility = ["//visibility:public"],
+)
+
+sh_binary(
+    name = "test",
+    srcs = ["bazel_npm.sh"],
+    args = ["test"],
+    visibility = ["//visibility:public"],
+)

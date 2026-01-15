@@ -6,8 +6,8 @@ go_library(
     importpath = "github.com/ilhamster/traceviz/server/go/continuous_axis",
     visibility = ["//visibility:public"],
     deps = [
-        "//category",
-        "//util",
+        "//server/go/category",
+        "//server/go/util",
     ],
 )
 
@@ -16,8 +16,8 @@ go_test(
     srcs = ["continuous_axis_test.go"],
     embed = [":continuous_axis"],
     deps = [
-        "//category",
-        "//test_util",
-        "//util",
+        "//server/go/category",
+        "//server/go/test_util",
+        "//server/go/util",
     ],
 )

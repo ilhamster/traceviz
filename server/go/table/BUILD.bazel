@@ -6,8 +6,8 @@ go_library(
     importpath = "github.com/ilhamster/traceviz/server/go/table",
     visibility = ["//visibility:public"],
     deps = [
-        "//category",
-        "//util",
+        "//server/go/category",
+        "//server/go/util",
     ],
 )
 
@@ -16,9 +16,9 @@ go_test(
     srcs = ["table_test.go"],
     embed = [":table"],
     deps = [
-        "//category",
-        "//payload",
-        "//test_util",
-        "//util",
+        "//server/go/category",
+        "//server/go/payload",
+        "//server/go/test_util",
+        "//server/go/util",
     ],
 )

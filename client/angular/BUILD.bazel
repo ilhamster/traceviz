@@ -1,0 +1,20 @@
+sh_binary(
+    name = "build_lib",
+    srcs = ["bazel_npm.sh"],
+    args = ["build:lib"],
+    visibility = ["//visibility:public"],
+)
+
+sh_binary(
+    name = "test_headless",
+    srcs = ["bazel_npm.sh"],
+    args = ["test:headless"],
+    visibility = ["//visibility:public"],
+)
+
+sh_binary(
+    name = "test_host",
+    srcs = ["bazel_npm.sh"],
+    args = ["test:host"],
+    visibility = ["//visibility:public"],
+)

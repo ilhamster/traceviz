@@ -1,0 +1,42 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "data_source",
+    srcs = [
+        "data_source.go",
+        "timeseries_query.go",
+        "trace_query.go",
+    ],
+    importpath = "github.com/ilhamster/traceviz/logviz/data_source",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//logviz/analysis/log_trace",
+        "//server/go/category_axis",
+        "//server/go/category",
+        "//server/go/color",
+        "//server/go/continuous_axis",
+        "//server/go/table",
+        "//server/go/trace",
+        "//server/go/util",
+        "//server/go/xy_chart",
+        "@com_github_hashicorp_golang_lru//simplelru:go_default_library",
+    ],
+)
+
+go_test(
+    name = "data_source_test",
+    srcs = ["data_source_test.go"],
+    embed = [":data_source"],
+    deps = [
+        "//logviz/analysis/log_reader",
+        "//logviz/analysis/log_trace",
+        "//server/go/category",
+        "//server/go/color",
+        "//server/go/continuous_axis",
+        "//server/go/query_dispatcher",
+        "//server/go/table",
+        "//server/go/test_util",
+        "//server/go/util",
+        "//server/go/xy_chart",
+    ],
+)

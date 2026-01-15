@@ -6,9 +6,9 @@ go_library(
     importpath = "github.com/ilhamster/traceviz/server/go/xy_chart",
     visibility = ["//visibility:public"],
     deps = [
-        "//category",
-        "//continuous_axis",
-        "//util",
+        "//server/go/category",
+        "//server/go/continuous_axis",
+        "//server/go/util",
     ],
 )
 
@@ -17,10 +17,10 @@ go_test(
     srcs = ["xy_chart_test.go"],
     embed = [":xy_chart"],
     deps = [
-        "//category",
-        "//color",
-        "//continuous_axis",
-        "//test_util",
-        "//util",
+        "//server/go/category",
+        "//server/go/color",
+        "//server/go/continuous_axis",
+        "//server/go/test_util",
+        "//server/go/util",
     ],
 )

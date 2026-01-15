@@ -5,7 +5,7 @@ go_library(
     srcs = ["color.go"],
     importpath = "github.com/ilhamster/traceviz/server/go/color",
     visibility = ["//visibility:public"],
-    deps = ["//util"],
+    deps = ["//server/go/util"],
 )
 
 go_test(
@@ -13,7 +13,7 @@ go_test(
     srcs = ["color_test.go"],
     embed = [":color"],
     deps = [
-        "//test_util",
-        "//util",
+        "//server/go/test_util",
+        "//server/go/util",
     ],
 )

@@ -6,10 +6,10 @@ go_library(
     importpath = "github.com/ilhamster/traceviz/server/go/trace",
     visibility = ["//visibility:public"],
     deps = [
-        "//category",
-        "//category_axis",
-        "//continuous_axis",
-        "//util",
+        "//server/go/category",
+        "//server/go/category_axis",
+        "//server/go/continuous_axis",
+        "//server/go/util",
     ],
 )
 
@@ -18,11 +18,11 @@ go_test(
     srcs = ["trace_test.go"],
     embed = [":trace"],
     deps = [
-        "//category",
-        "//category_axis",
-        "//continuous_axis",
-        "//payload",
-        "//test_util",
-        "//util",
+        "//server/go/category",
+        "//server/go/category_axis",
+        "//server/go/continuous_axis",
+        "//server/go/payload",
+        "//server/go/test_util",
+        "//server/go/util",
     ],
 )

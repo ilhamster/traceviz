@@ -1,0 +1,23 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "log_reader",
+    srcs = [
+        "crdb_log_parser.go",
+        "logger_reader.go",
+        "simple_log_parser.go",
+    ],
+    importpath = "github.com/ilhamster/traceviz/logviz/analysis/log_reader",
+    visibility = ["//visibility:public"],
+    deps = ["//logviz/analysis/log_trace"],
+)
+
+go_test(
+    name = "log_reader_test",
+    srcs = ["logger_reader_test.go"],
+    embed = [":log_reader"],
+    deps = [
+        "//logviz/analysis/log_trace",
+        "@com_github_google_go_cmp//cmp:go_default_library",
+    ],
+)

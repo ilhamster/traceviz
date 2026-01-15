@@ -5,7 +5,7 @@ go_library(
     srcs = ["payload.go"],
     importpath = "github.com/ilhamster/traceviz/server/go/payload",
     visibility = ["//visibility:public"],
-    deps = ["//util"],
+    deps = ["//server/go/util"],
 )
 
 go_test(
@@ -13,7 +13,7 @@ go_test(
     srcs = ["payload_test.go"],
     embed = [":payload"],
     deps = [
-        "//test_util",
-        "//util",
+        "//server/go/test_util",
+        "//server/go/util",
     ],
 )

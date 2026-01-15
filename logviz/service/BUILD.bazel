@@ -1,0 +1,16 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "service",
+    srcs = ["service.go"],
+    importpath = "github.com/ilhamster/traceviz/logviz/service",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//logviz/analysis/log_reader",
+        "//logviz/analysis/log_trace",
+        "//logviz/data_source",
+        "//server/go/handlers",
+        "//server/go/query_dispatcher",
+        "@com_github_hashicorp_golang_lru//simplelru:go_default_library",
+    ],
+)
