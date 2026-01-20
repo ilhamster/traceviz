@@ -14,4 +14,10 @@ if [[ -z "${root}" ]]; then
 fi
 
 cd "${root}/client/core"
+
+if [[ ! -d "node_modules" ]] || [[ "${cmd}" == "test" && ! -e "node_modules/ts-node" ]]; then
+  echo "client/core dependencies missing; installing now." >&2
+  npm install
+fi
+
 npm run "${cmd}"

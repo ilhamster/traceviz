@@ -63,8 +63,12 @@ if [[ -z "${server_bin}" ]]; then
   exit 2
 fi
 
-if [[ ! -x "${server_bin}" ]]; then
-  server_bin="$(resolve_runfile "${server_bin}" || true)"
+if [[ "${server_bin}" != /* ]]; then
+  if [[ -x "${server_bin}" ]]; then
+    server_bin="$(pwd)/${server_bin}"
+  else
+    server_bin="$(resolve_runfile "${server_bin}" || true)"
+  fi
 fi
 
 if [[ ! -x "${server_bin}" ]]; then
@@ -72,12 +76,14 @@ if [[ ! -x "${server_bin}" ]]; then
   exit 1
 fi
 
-cd "${root}/logviz/client"
-npm run build
+if [[ "${SKIP_CLIENT_BUILD:-}" != "1" ]]; then
+  cd "${root}/logviz/client"
+  npm run build
+fi
 
 args=(--resource_root "${resource_root}")
 if [[ -n "${log_root}" ]]; then
   args+=(--log_root "${log_root}")
 fi
 
-exec "${server_bin}" "${args[@]}"
+(cd "${root}/logviz" && exec "${server_bin}" "${args[@]}")

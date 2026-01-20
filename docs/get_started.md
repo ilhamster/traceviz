@@ -11,7 +11,21 @@ right away.  You'll need to ensure you have
 traceviz$ npm run demo
 ```
 
-If all goes well, this will:
+TraceViz also supports a Bazel build path.  To run all tests and then run the
+demo with Bazel, ensure that Bazel is installed, and then run:
+
+```sh
+traceviz$ bash bazel_demo.sh
+```
+
+For cleanup helpers, the root `package.json` includes:
+
+```sh
+npm run bazel-reset
+npm run reset-all
+```
+
+If all goes well, either of these commands will:
 
 *   build and test the TraceViz client core libraries;
 *   build and test the TraceViz core Angular library and a set of included
@@ -44,3 +58,43 @@ learn about its capabilities, but among other things,
 *   The WASD keys zoom in and out (W and S respectively) and pan left and right
     (A and D respectively) in the timeline (with the same global time filtering
     behavior).
+
+## Bazel notes
+
+Some Bazel targets wrap the existing npm/ng scripts.  These wrappers will
+install `node_modules` on demand if missing, but you can also install manually:
+
+```sh
+npm --prefix client/core install
+```
+
+For Angular library builds/tests, install dependencies once in the Angular
+workspace:
+
+```sh
+npm --prefix client/angular install
+```
+
+If you run Angular builds via Bazel, make sure the client core package is built
+first (the wrapper will do this if needed):
+
+```sh
+npm --prefix client/core run build
+```
+
+Logviz's client depends on both the core TS library and the Angular library.  If
+you use the Bazel wrappers for Logviz, the wrapper will build those libraries
+first if needed.
+
+## Build validation
+
+For a full validation pass of both `npm` and `bazel` build and tests paths, run
+the root `validate.sh` script:
+
+```sh
+./validate.sh
+```
+
+This script resets npm and Bazel state, runs comprehensive npm build/test
+commands, then runs Bazel build/test flows for `client/core`, `client/angular`,
+and Logviz.  It is intentionally thorough (and therefore slow).
