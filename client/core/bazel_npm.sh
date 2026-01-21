@@ -15,7 +15,7 @@ fi
 
 if [[ ! -d "${root}/node_modules" ]] || [[ "${cmd}" == "test" && ! -e "${root}/node_modules/ts-node" ]]; then
   echo "client/core dependencies missing; installing now." >&2
-  (cd "${root}" && npm install)
+  (cd "${root}" && pnpm install)
 fi
 
-(cd "${root}" && npm --workspace client/core run "${cmd}")
+(cd "${root}" && pnpm --filter ./client/core run "${cmd}")

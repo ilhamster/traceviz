@@ -3,12 +3,13 @@
 TraceViz comes bundled with a demo app, LogViz.  You can read more about its
 structure at [A TraceViz Tool](./a_traceviz_tool.md), but you can try it out
 right away.  You'll need to ensure you have
-[Node.js and npm](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm),
+[Node.js](https://nodejs.org/), and
+pnpm (e.g. `corepack enable && corepack prepare pnpm@latest --activate`),
 [Angular](https://angular.dev/installation), and
 [Go](https://go.dev/doc/install) installed.  Then, from the repository root,
 
 ```sh
-traceviz$ npm run demo
+traceviz$ pnpm run demo
 ```
 
 TraceViz also supports a Bazel build path.  To run all tests and then run the
@@ -21,8 +22,8 @@ traceviz$ bash bazel_demo.sh
 For cleanup helpers, the root `package.json` includes:
 
 ```sh
-npm run bazel-reset
-npm run reset-all
+pnpm run bazel-reset
+pnpm run reset-all
 ```
 
 If all goes well, either of these commands will:
@@ -61,25 +62,25 @@ learn about its capabilities, but among other things,
 
 ## Bazel notes
 
-Some Bazel targets wrap the existing npm/ng scripts.  These wrappers will
+Some Bazel targets wrap the existing pnpm/ng scripts.  These wrappers will
 install `node_modules` on demand if missing, but you can also install manually:
 
 ```sh
-npm --prefix client/core install
+pnpm --filter ./client/core install
 ```
 
 For Angular library builds/tests, install dependencies once in the Angular
 workspace:
 
 ```sh
-npm --prefix client/angular install
+pnpm --filter ./client/angular install
 ```
 
 If you run Angular builds via Bazel, make sure the client core package is built
 first (the wrapper will do this if needed):
 
 ```sh
-npm --prefix client/core run build
+pnpm --filter ./client/core run build
 ```
 
 Logviz's client depends on both the core TS library and the Angular library.  If
@@ -88,13 +89,13 @@ first if needed.
 
 ## Build validation
 
-For a full validation pass of both `npm` and `bazel` build and tests paths, run
+For a full validation pass of both `pnpm` and `bazel` build and tests paths, run
 the root `validate.sh` script:
 
 ```sh
 ./validate.sh
 ```
 
-This script resets npm and Bazel state, runs comprehensive npm build/test
+This script resets pnpm and Bazel state, runs comprehensive pnpm build/test
 commands, then runs Bazel build/test flows for `client/core`, `client/angular`,
 and Logviz.  It is intentionally thorough (and therefore slow).

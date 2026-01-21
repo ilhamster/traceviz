@@ -1,11 +1,11 @@
 # TraceViz Agent Notes
 
 ## Build philosophy
-- Prefer the partial Bazel setup: Bazel wraps `npm`/`ng` for JS/TS/Angular. Avoid full Bazelification unless explicitly requested.
-- For Logviz and other TraceViz tools, use Bazel targets that invoke the existing build tools (npm/ng/go) rather than re-implementing their build graphs.
-- Keep npm build paths working. Avoid changes that only work under Bazel.
-- For build-affecting changes, prefer running `./validate.sh` to exercise both npm and Bazel flows.
-- Prefer clean baselines before validation; use `npm run bazel-reset`, `npm run reset`, or `npm run reset-all` as appropriate.
+- Prefer the partial Bazel setup: Bazel wraps `pnpm`/`ng` for JS/TS/Angular. Avoid full Bazelification unless explicitly requested.
+- For Logviz and other TraceViz tools, use Bazel targets that invoke the existing build tools (pnpm/ng/go) rather than re-implementing their build graphs.
+- Keep pnpm build paths working. Avoid changes that only work under Bazel.
+- For build-affecting changes, prefer running `./validate.sh` to exercise both pnpm and Bazel flows.
+- Prefer clean baselines before validation; use `pnpm run bazel-reset`, `pnpm run reset`, or `pnpm run reset-all` as appropriate.
 
 ## Go code style
 - Prefer descriptive names, except for very short-lived locals (e.g., `i`, `j`, `n` in tight loops).

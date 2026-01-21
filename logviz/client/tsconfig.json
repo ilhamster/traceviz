@@ -19,6 +19,56 @@
     "target": "ES2022",
     "module": "ES2022",
     "useDefineForClassFields": false,
+    "paths": {
+      "@traceviz/client-core": [
+        "../../client/core/public-api.ts"
+      ],
+      "@traceviz/angular/axes": [
+        "../../client/angular/projects/traceviz-angular/axes/src/public-api.ts"
+      ],
+      "@traceviz/angular/core": [
+        "../../client/angular/projects/traceviz-angular/core/src/public-api.ts"
+      ],
+      "@traceviz/angular/data_table": [
+        "../../client/angular/projects/traceviz-angular/data_table/src/public-api.ts"
+      ],
+      "@traceviz/angular/dropdown": [
+        "../../client/angular/projects/traceviz-angular/dropdown/src/public-api.ts"
+      ],
+      "@traceviz/angular/error_message": [
+        "../../client/angular/projects/traceviz-angular/error_message/src/public-api.ts"
+      ],
+      "@traceviz/angular/hovercard": [
+        "../../client/angular/projects/traceviz-angular/hovercard/src/public-api.ts"
+      ],
+      "@traceviz/angular/keypress": [
+        "../../client/angular/projects/traceviz-angular/keypress/src/public-api.ts"
+      ],
+      "@traceviz/angular/line_chart": [
+        "../../client/angular/projects/traceviz-angular/line_chart/src/public-api.ts"
+      ],
+      "@traceviz/angular/slide_toggle": [
+        "../../client/angular/projects/traceviz-angular/slide_toggle/src/public-api.ts"
+      ],
+      "@traceviz/angular/text_area": [
+        "../../client/angular/projects/traceviz-angular/text_area/src/public-api.ts"
+      ],
+      "@traceviz/angular/text_field": [
+        "../../client/angular/projects/traceviz-angular/text_field/src/public-api.ts"
+      ],
+      "@traceviz/angular/trace": [
+        "../../client/angular/projects/traceviz-angular/trace/src/public-api.ts"
+      ],
+      "@traceviz/angular/update_values": [
+        "../../client/angular/projects/traceviz-angular/update_values/src/public-api.ts"
+      ],
+      "@traceviz/angular/url_hash": [
+        "../../client/angular/projects/traceviz-angular/url_hash/src/public-api.ts"
+      ],
+      "@traceviz/angular/weighted_tree": [
+        "../../client/angular/projects/traceviz-angular/weighted_tree/src/public-api.ts"
+      ]
+    },
     "lib": [
       "ES2022",
       "dom"

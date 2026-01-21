@@ -1,0 +1,5 @@
+packages:
+  - "client/core"
+  - "client/angular"
+  - "client/angular/projects/traceviz-angular"
+  - "logviz/client"

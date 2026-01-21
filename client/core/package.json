@@ -21,9 +21,9 @@
   "scripts": {
     "clean": "rimraf dist",
     "build": "tsc --declaration",
-    "test": "node --loader ts-node/esm ../../node_modules/jasmine/bin/jasmine.js --config=spec/support/jasmine.js",
-    "bt": "npm run build && npm run test",
-    "cbt": "npm run clean && npm run bt"
+    "test": "NODE_OPTIONS=--loader=ts-node/esm pnpm exec jasmine --config=spec/support/jasmine.js",
+    "bt": "pnpm run build && pnpm run test",
+    "cbt": "pnpm run clean && pnpm run bt"
   },
   "repository": {
     "type": "git",

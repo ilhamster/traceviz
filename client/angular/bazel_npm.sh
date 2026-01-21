@@ -15,17 +15,17 @@ fi
 
 if [[ ! -d "${root}/node_modules" ]] || [[ "${cmd}" == "build:lib" && ! -e "${root}/node_modules/.bin/ng-packagr" ]]; then
   echo "client/angular dependencies missing; installing now." >&2
-  (cd "${root}" && npm install)
+  (cd "${root}" && pnpm install)
 fi
 
 if [[ "${cmd}" == "build:lib" ]] && [[ ! -e "${root}/client/core/dist/core.d.ts" ]]; then
   echo "client/angular build:lib requires client/core build; running it now." >&2
-  (cd "${root}" && npm --workspace client/core run build)
+  (cd "${root}" && pnpm --filter ./client/core run build)
 fi
 
 if [[ "${cmd}" == "test:headless" ]] && [[ ! -e "${root}/client/core/dist/core.d.ts" ]]; then
   echo "client/angular test:headless requires client/core build; running it now." >&2
-  (cd "${root}" && npm --workspace client/core run build)
+  (cd "${root}" && pnpm --filter ./client/core run build)
 fi
 
-(cd "${root}" && npm --workspace client/angular run "${cmd}")
+(cd "${root}" && pnpm --filter ./client/angular run "${cmd}")

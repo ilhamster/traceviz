@@ -5,38 +5,39 @@
   "workspaces": [
     "client/core",
     "client/angular",
+    "client/angular/projects/traceviz-angular",
     "logviz/client"
   ],
 
   "scripts": {
     "clean": "rimraf client/angular/dist client/core/dist client/angular/.angular client/core/.angular client/core/.tsbuildinfo logviz/client/dist logviz/client/.angular",
-    "deep-clean": "rimraf node_modules package-lock.json client/angular/node_modules client/core/node_modules logviz/client/node_modules",
-    "reset": "npm install && npm run clean && npm run deep-clean",
+    "deep-clean": "rimraf node_modules pnpm-lock.yaml client/angular/node_modules client/core/node_modules logviz/client/node_modules",
+    "reset": "pnpm install && pnpm run clean && pnpm run deep-clean",
     "bazel-reset": "rimraf .aspect && bazel clean --expunge",
-    "reset-all": "npm run bazel-reset && npm run reset",
+    "reset-all": "pnpm run bazel-reset && pnpm run reset",
 
-    "install:all": "npm install",
-    "install:core": "npm --workspace client/core install",
-    "install:angular": "npm --workspace client/angular install",
-    "install:logviz": "npm --workspace logviz/client install",
+    "install:all": "pnpm install",
+    "install:core": "pnpm --filter ./client/core install",
+    "install:angular": "pnpm --filter ./client/angular install",
+    "install:logviz": "pnpm --filter ./logviz/client install",
 
-    "build": "npm run build:core && npm run build:angular",
-    "build:core": "cd client/core && npm run build",
-    "build:angular": "cd client/angular && npx ng build",
-    "build:logviz": "cd logviz/client && npm run build",
+    "build": "pnpm run build:core && pnpm run build:angular",
+    "build:core": "pnpm --filter ./client/core run build",
+    "build:angular": "pnpm --filter ./client/angular exec ng build",
+    "build:logviz": "pnpm --filter ./logviz/client run build",
 
-    "test": "npm run test:core && npm run test:angular",
-    "test:core": "cd client/core && npm run test",
-    "test:angular": "cd client/angular && npm run test:headless",
+    "test": "pnpm run test:core && pnpm run test:angular",
+    "test:core": "pnpm --filter ./client/core run test",
+    "test:angular": "pnpm --filter ./client/angular run test:headless",
 
-    "bt": "npm run build && npm run test",
-    "ibt": "npm run install:all && npm run bt",
+    "bt": "pnpm run build && pnpm run test",
+    "ibt": "pnpm run install:all && pnpm run bt",
 
-    "ib:logviz": "npm run install:logviz && npm run build:logviz",
+    "ib:logviz": "pnpm run install:logviz && pnpm run build:logviz",
 
     "run:logviz": "cd logviz && go run server/server.go --resource_root ./client/dist/client",
 
-    "demo": "npm run ibt && npm run ib:logviz && npm run run:logviz"
+    "demo": "pnpm run ibt && pnpm run ib:logviz && pnpm run run:logviz"
   },
 
   "devDependencies": {

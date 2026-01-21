@@ -5,7 +5,7 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${root}"
 
 reset_npm() {
-  npm run reset
+  pnpm run reset
 }
 
 reset_bazel() {
@@ -18,12 +18,12 @@ section() {
   echo "==> $*"
 }
 
-section "npm: reset"
+section "pnpm: reset"
 reset_npm
 
-section "npm: build + test + logviz build (no run)"
-npm run ibt
-npm run ib:logviz
+section "pnpm: build + test + logviz build (no run)"
+pnpm run ibt
+pnpm run ib:logviz
 
 section "bazel: initial clean"
 reset_bazel
@@ -48,7 +48,7 @@ section "bazel: logviz build (go + client bundle)"
 reset_bazel
 bazel run //logviz:build
 
-section "npm: final reset"
+section "pnpm: final reset"
 reset_npm
 
 section "bazel: final clean"

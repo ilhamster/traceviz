@@ -36,16 +36,22 @@
   "dependencies": {
     "@angular/cdk": "^17.3.0",
     "@angular/material": "^17.3.0",
-    "@traceviz/client-core": "file:../core",
+    "@traceviz/client-core": "workspace:*",
     "@types/d3": "^7.4.3",
     "@types/d3-dispatch": "3.0.2",
+    "@types/d3-brush": "^3.0.6",
+    "@types/d3-selection": "^3.0.11",
+    "@types/d3-shape": "^3.1.7",
     "d3": "^7.0.0",
+    "d3-brush": "^3.0.0",
+    "d3-selection": "^3.0.0",
+    "d3-shape": "^3.2.0",
     "rxjs": "^7.8.2",
     "zone.js": "^0.14.10"
   },
   "scripts": {
     "clean": "rimraf dist .angular node_modules/.cache",
-    "build:lib": "npm --prefix ./projects/traceviz-angular run build",
+    "build:lib": "pnpm --filter @traceviz/angular run build",
     "test:host": "ng test testhost",
     "test:headless": "ng test --watch=false --browsers=ChromeHeadless",
     "test:lib": "npm-run-all build:lib test:host"
