@@ -13,22 +13,20 @@ if [[ -z "${root}" ]]; then
   exit 2
 fi
 
-cd "${root}/logviz/client"
-
-if [[ ! -d "node_modules" ]]; then
+if [[ ! -d "${root}/node_modules" ]]; then
   echo "logviz/client node_modules is missing; installing now." >&2
-  (cd "${root}" && npm --prefix logviz/client install)
+  (cd "${root}" && npm install)
 fi
 
 if [[ "${cmd}" == "build" ]] || [[ "${cmd}" == "test" ]] || [[ "${cmd}" == "start" ]] || [[ "${cmd}" == "watch" ]]; then
   if [[ ! -e "${root}/client/core/dist/core.d.ts" ]]; then
     echo "logviz/client ${cmd} requires client/core build; running it now." >&2
-    (cd "${root}" && npm --prefix client/core run build)
+    (cd "${root}" && npm --workspace client/core run build)
   fi
   if [[ ! -e "${root}/client/angular/dist/traceviz-angular/package.json" ]]; then
     echo "logviz/client ${cmd} requires client/angular build; running it now." >&2
-    (cd "${root}" && npm --prefix client/angular run build:lib)
+    (cd "${root}" && npm --workspace client/angular run build:lib)
   fi
 fi
 
-npm run "${cmd}"
+(cd "${root}" && npm --workspace logviz/client run "${cmd}")

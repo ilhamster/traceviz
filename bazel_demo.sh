@@ -11,4 +11,4 @@ echo "==> bazel: client/angular headless tests"
 bazel run //client/angular:test_headless
 
 echo "==> bazel: logviz run"
-bazel run //logviz:run
+bazel run //logviz:run_server

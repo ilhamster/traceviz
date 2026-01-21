@@ -43,14 +43,3 @@ sh_binary(
     data = ["//logviz/server:server"],
     visibility = ["//visibility:public"],
 )
-
-sh_binary(
-    name = "run",
-    srcs = ["run.sh"],
-    args = [
-        "--server-bin",
-        "$(rootpath //logviz/server:server)",
-    ],
-    data = ["//logviz/server:server"],
-    visibility = ["//visibility:public"],
-)

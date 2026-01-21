@@ -2,18 +2,23 @@
   "name": "traceviz",
   "version": "0.0.0",
   "private": true,
+  "workspaces": [
+    "client/core",
+    "client/angular",
+    "logviz/client"
+  ],
 
   "scripts": {
     "clean": "rimraf client/angular/dist client/core/dist client/angular/.angular client/core/.angular client/core/.tsbuildinfo logviz/client/dist logviz/client/.angular",
-    "deep-clean": "rimraf client/angular/node_modules client/angular/package-lock.json client/core/node_modules client/core/package-lock.json logviz/client/node_modules logviz/client/package-lock.json node_modules package-lock.json",
+    "deep-clean": "rimraf node_modules package-lock.json client/angular/node_modules client/core/node_modules logviz/client/node_modules",
     "reset": "npm install && npm run clean && npm run deep-clean",
     "bazel-reset": "rimraf .aspect && bazel clean --expunge",
     "reset-all": "npm run bazel-reset && npm run reset",
 
-    "install:all": "npm install && npm run install:core && npm run install:angular",
-    "install:core": "cd client/core && npm install",
-    "install:angular": "cd client/angular && npm install",
-    "install:logviz": "cd logviz/client && npm install",
+    "install:all": "npm install",
+    "install:core": "npm --workspace client/core install",
+    "install:angular": "npm --workspace client/angular install",
+    "install:logviz": "npm --workspace logviz/client install",
 
     "build": "npm run build:core && npm run build:angular",
     "build:core": "cd client/core && npm run build",

@@ -77,8 +77,7 @@ if [[ ! -x "${server_bin}" ]]; then
 fi
 
 if [[ "${SKIP_CLIENT_BUILD:-}" != "1" ]]; then
-  cd "${root}/logviz/client"
-  npm run build
+  "${root}/logviz/client/bazel_npm.sh" build
 fi
 
 args=(--resource_root "${resource_root}")
