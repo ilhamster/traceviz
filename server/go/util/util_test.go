@@ -700,7 +700,7 @@ func TestPrettyPrint(t *testing.T) {
 		drb := test.builder()
 		got, err := drb.Data()
 		if err != nil {
-			t.Fatalf(err.Error())
+			t.Fatalf("%s", err.Error())
 		}
 		if diff := cmp.Diff(test.want, got.PrettyPrint()); diff != "" {
 			t.Errorf("Got data %s, diff (-want, +got) %s", got.PrettyPrint(), diff)

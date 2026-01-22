@@ -458,7 +458,7 @@ func (errs *errors) toError() error {
 	if len(errs.errs) == 0 {
 		return nil
 	}
-	return fmt.Errorf(errs.Error())
+	return fmt.Errorf("%s", errs.Error())
 }
 
 // DataResponseBuilder streamlines assembling responses to DataRequests.

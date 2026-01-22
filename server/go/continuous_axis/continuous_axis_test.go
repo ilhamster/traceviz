@@ -26,7 +26,7 @@ const timeLayout = "Jan 2, 2006 at 3:04pm (MST)"
 
 type testcase[T float64 | time.Duration | time.Time] struct {
 	description string
-	axis        *Axis[T]
+	axis        Axis[T]
 	wantUpdates []util.PropertyUpdate
 	wantValues  map[T]util.PropertyUpdate
 }

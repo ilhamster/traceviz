@@ -60,7 +60,7 @@ func (uc *UpdateComparator) Compare(t *testing.T) (string, bool) {
 	resp.Child().With(uc.want...) // 'want': expected equivalent updates
 	data, err := drb.Data()
 	if err != nil {
-		t.Fatalf(err.Error())
+		t.Fatalf("%s", err.Error())
 	}
 	seriesChildren := data.DataSeries[0].Root.Children
 	diff := cmp.Diff(

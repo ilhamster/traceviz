@@ -17,6 +17,7 @@
 package continuousaxis
 
 import (
+	"fmt"
 	"math"
 	"time"
 
@@ -68,10 +69,10 @@ func (y YAxisRenderSettings) Apply() util.PropertyUpdate {
 }
 
 // Axis is implemented by types that can act as axes.
-type Axis[T float64 | time.Duration | time.Time] struct {
+type axis[T float64 | time.Duration | time.Time] struct {
 	axisType string
 	cat      *category.Category
-	Value    func(key string, v T) util.PropertyUpdate
+	value    func(key string, v T) util.PropertyUpdate
 	min, max T
 }
 
@@ -79,35 +80,45 @@ func newAxis[T float64 | time.Duration | time.Time](
 	axisType string,
 	cat *category.Category,
 	valueFn func(key string, v T) util.PropertyUpdate,
-	min, max T) *Axis[T] {
-	return &Axis[T]{
+	min, max T) *axis[T] {
+	return &axis[T]{
 		axisType: axisType,
 		cat:      cat,
-		Value:    valueFn,
+		value:    valueFn,
 		min:      min,
 		max:      max,
 	}
 }
 
 // Define annotates with a definition of the receiver.
-func (a *Axis[T]) Define() util.PropertyUpdate {
+func (a *axis[T]) Define() util.PropertyUpdate {
 	return util.Chain(
 		a.cat.Define(),
 		util.StringProperty(axisTypeKey, a.axisType),
-		a.Value(axisMinKey, a.min),
-		a.Value(axisMaxKey, a.max),
+		a.value(axisMinKey, a.min),
+		a.value(axisMaxKey, a.max),
 	)
 }
 
+func (a *axis[T]) Value(k string, v T) util.PropertyUpdate {
+	return a.value(k, v)
+}
+
 // CategoryID returns the category ID of the receiving Axis.
-func (a *Axis[T]) CategoryID() string {
+func (a *axis[T]) CategoryID() string {
 	return a.cat.ID()
+}
+
+type Axis[T any] interface {
+	Define() util.PropertyUpdate
+	CategoryID() string
+	Value(k string, v T) util.PropertyUpdate
 }
 
 // NewTimestampAxis returns a new TimestampAxis with the specified category.
 // If the optional extents are provided, the axis' minimum and maximum extents
 // will be initialized to the lowest and highest of those extents.
-func NewTimestampAxis(cat *category.Category, extents ...time.Time) *Axis[time.Time] {
+func NewTimestampAxis(cat *category.Category, extents ...time.Time) Axis[time.Time] {
 	var min, max time.Time
 	for _, extent := range extents {
 		if min.IsZero() || min.After(extent) {
@@ -127,7 +138,7 @@ func NewTimestampAxis(cat *category.Category, extents ...time.Time) *Axis[time.T
 // NewDurationAxis returns a new DurationAxis with the specified category.
 // If the optional extents are provided, the axis' minimum and maximum extents
 // will be initialized to the lowest and highest of those extents.
-func NewDurationAxis(cat *category.Category, extents ...time.Duration) *Axis[time.Duration] {
+func NewDurationAxis(cat *category.Category, extents ...time.Duration) Axis[time.Duration] {
 	var min, max time.Duration = time.Duration(math.MaxInt64), time.Duration(math.MinInt64)
 	for _, extent := range extents {
 		if extent < min {
@@ -147,7 +158,7 @@ func NewDurationAxis(cat *category.Category, extents ...time.Duration) *Axis[tim
 // NewDoubleAxis returns a new DoubleAxis with the specified category.
 // If the optional extents are provided, the axis' minimum and maximum extents
 // will be initialized to the lowest and highest of those extents.
-func NewDoubleAxis(cat *category.Category, extents ...float64) *Axis[float64] {
+func NewDoubleAxis(cat *category.Category, extents ...float64) Axis[float64] {
 	var min, max float64 = math.MaxFloat64, -math.MaxFloat64
 	for _, extent := range extents {
 		if min > extent {
@@ -162,4 +173,23 @@ func NewDoubleAxis(cat *category.Category, extents ...float64) *Axis[float64] {
 		func(key string, v float64) util.PropertyUpdate {
 			return util.DoubleProperty(key, v)
 		}, min, max)
+}
+
+func NewAxis[T float64 | time.Duration | time.Time](
+	cat *category.Category,
+	min, max T,
+) (Axis[T], error) {
+	switch v := any(min).(type) {
+	case float64:
+		axis := NewDoubleAxis(cat, v, any(max).(float64))
+		return any(axis).(Axis[T]), nil
+	case time.Duration:
+		axis := NewDurationAxis(cat, v, any(max).(time.Duration))
+		return any(axis).(Axis[T]), nil
+	case time.Time:
+		axis := NewTimestampAxis(cat, v, any(max).(time.Time))
+		return any(axis).(Axis[T]), nil
+	default:
+		return nil, fmt.Errorf("unsupported type %T for axis", v)
+	}
 }

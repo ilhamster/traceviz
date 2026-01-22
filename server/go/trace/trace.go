@@ -228,11 +228,15 @@ func traceNode(parentDb util.DataBuilder, nodeType traceNodeType) util.DataBuild
 // the portion of the trace to be visualized.
 type Trace[T float64 | time.Duration | time.Time] struct {
 	db   util.DataBuilder
-	axis *continuousaxis.Axis[T]
+	axis continuousaxis.Axis[T]
 }
 
 // New returns a new Trace populating the provided data builder.
-func New[T float64 | time.Duration | time.Time](db util.DataBuilder, axis *continuousaxis.Axis[T], renderSettings *RenderSettings) *Trace[T] {
+func New[T float64 | time.Duration | time.Time](
+	db util.DataBuilder,
+	axis continuousaxis.Axis[T],
+	renderSettings *RenderSettings,
+) *Trace[T] {
 	return &Trace[T]{
 		db: db.With(
 			axis.Define(),
@@ -280,7 +284,7 @@ func (t *Trace[T]) Category(category *category.Category, properties ...util.Prop
 // execution in the concurrent system.)
 type Category[T float64 | time.Duration | time.Time] struct {
 	db   util.DataBuilder
-	axis *continuousaxis.Axis[T]
+	axis continuousaxis.Axis[T]
 }
 
 // Category adds and returns a sub-Category under the receiving Category.
@@ -324,7 +328,7 @@ func (c *Category[T]) With(properties ...util.PropertyUpdate) *Category[T] {
 // have children.
 type Span[T float64 | time.Duration | time.Time] struct {
 	db   util.DataBuilder
-	axis *continuousaxis.Axis[T]
+	axis continuousaxis.Axis[T]
 }
 
 // Span creates a new Span with the specified start and end point under the

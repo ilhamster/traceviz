@@ -114,12 +114,17 @@ func (rs *RenderSettings) define() util.PropertyUpdate {
 // discrete category axis.
 type BarChart[T float64 | time.Duration | time.Time] struct {
 	db        util.DataBuilder
-	valueAxis *continuousaxis.Axis[T]
+	valueAxis continuousaxis.Axis[T]
 }
 
 // New returns a new BarChart populating the provided DataBuilder, and using
 // the provided value axis and render settings.
-func New[T float64 | time.Duration | time.Time](db util.DataBuilder, valueAxis *continuousaxis.Axis[T], renderSettings *RenderSettings, properties ...util.PropertyUpdate) *BarChart[T] {
+func New[T float64 | time.Duration | time.Time](
+	db util.DataBuilder,
+	valueAxis continuousaxis.Axis[T],
+	renderSettings *RenderSettings,
+	properties ...util.PropertyUpdate,
+) *BarChart[T] {
 	return &BarChart[T]{
 		db: db.With(
 			valueAxis.Define(),
@@ -151,7 +156,7 @@ func (bc *BarChart[T]) Category(category *category.Category, properties ...util.
 // Category represents a category lane within a bar chart.
 type Category[T float64 | time.Duration | time.Time] struct {
 	db        util.DataBuilder
-	valueAxis *continuousaxis.Axis[T]
+	valueAxis continuousaxis.Axis[T]
 }
 
 // With annotates the receiver with the provided properties.
@@ -199,7 +204,7 @@ func (c *Category[T]) BoxPlot(min, q1, q2, q3, max T) *BoxPlot[T] {
 // StackedBars represents a collection of Bars within a Category.
 type StackedBars[T float64 | time.Duration | time.Time] struct {
 	db        util.DataBuilder
-	valueAxis *continuousaxis.Axis[T]
+	valueAxis continuousaxis.Axis[T]
 }
 
 // Bar returns a new bar added into the receiving StackedBars.  All argument
@@ -220,7 +225,7 @@ func (b *Bar[T]) With(properties ...util.PropertyUpdate) *Bar[T] {
 	return b
 }
 
-func newBar[T float64 | time.Duration | time.Time](parentDb util.DataBuilder, valueAxis *continuousaxis.Axis[T], lower, upper T) *Bar[T] {
+func newBar[T float64 | time.Duration | time.Time](parentDb util.DataBuilder, valueAxis continuousaxis.Axis[T], lower, upper T) *Bar[T] {
 	return &Bar[T]{
 		db: parentDb.Child().With(
 			util.StringProperty(dataTypeKey, barKey),

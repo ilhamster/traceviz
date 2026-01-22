@@ -54,7 +54,7 @@ type Node[T float64 | time.Duration | time.Time] struct {
 
 // New produces a new Node in the provided DataBuilder, with the provided
 // offset, ID, and endpoint node IDs.
-func New[T float64 | time.Duration | time.Time](axis *continuousaxis.Axis[T], parent payload.Payloader, start T, id string, edgeEndpointNodeIDs ...string) *Node[T] {
+func New[T float64 | time.Duration | time.Time](axis continuousaxis.Axis[T], parent payload.Payloader, start T, id string, edgeEndpointNodeIDs ...string) *Node[T] {
 	return &Node[T]{
 		db: payload.New(parent, PayloadType).With(
 			util.StringProperty(nodeIDKey, id),

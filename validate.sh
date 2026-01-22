@@ -48,6 +48,10 @@ section "bazel: logviz build (go + client bundle)"
 reset_bazel
 bazel run //logviz:build
 
+section "bazel: server/go tests"
+reset_bazel
+bazel test //server/go/...
+
 section "pnpm: final reset"
 reset_npm
 

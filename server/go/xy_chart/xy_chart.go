@@ -81,14 +81,19 @@ import (
 
 // XYChart represents an xy-chart embedded in a TraceViz response.
 type XYChart[X float64 | time.Duration | time.Time, Y float64 | time.Duration | time.Time] struct {
-	xAxis *continuousaxis.Axis[X]
-	yAxis *continuousaxis.Axis[Y]
+	xAxis continuousaxis.Axis[X]
+	yAxis continuousaxis.Axis[Y]
 	db    util.DataBuilder
 }
 
 // New constructs a new xy chart.  The returned close function should be
 // invoked when no more data may be added to the chart.
-func New[X float64 | time.Duration | time.Time, Y float64 | time.Duration | time.Time](db util.DataBuilder, xAxis *continuousaxis.Axis[X], yAxis *continuousaxis.Axis[Y], properties ...util.PropertyUpdate) *XYChart[X, Y] {
+func New[X float64 | time.Duration | time.Time, Y float64 | time.Duration | time.Time](
+	db util.DataBuilder,
+	xAxis continuousaxis.Axis[X],
+	yAxis continuousaxis.Axis[Y],
+	properties ...util.PropertyUpdate,
+) *XYChart[X, Y] {
 	ret := &XYChart[X, Y]{
 		xAxis: xAxis,
 		yAxis: yAxis,
