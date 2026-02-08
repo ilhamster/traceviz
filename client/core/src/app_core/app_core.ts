@@ -15,12 +15,13 @@
  * @fileoverview The global state of a TraceViz application.
  */
 
-import {BehaviorSubject, combineLatest, ReplaySubject} from 'rxjs';
-import {distinctUntilChanged, map} from 'rxjs/operators';
+import { BehaviorSubject, combineLatest, ReplaySubject } from 'rxjs';
+import { distinctUntilChanged, map } from 'rxjs/operators';
 
-import {DataQuery} from '../data_query/data_query.js';
-import {ConfigurationError, Severity} from '../errors/errors.js';
-import {GlobalState} from '../global_state/global_state.js';
+import { DataQuery } from '../data_query/data_query.js';
+import { ConfigurationError, Severity } from '../errors/errors.js';
+import { GlobalState } from '../global_state/global_state.js';
+import { Value, ValueMap, ValueRef } from '../core.js';
 
 const SOURCE = 'app_core';
 
@@ -67,19 +68,20 @@ export class AppCore {
 
   addDataQuery(id: string = DEFAULT_DATA_QUERY_ID): DataQuery {
     if (this.published) {
-      const err =
-          new ConfigurationError(
-              `DataQueries may only be added before the AppCore is published.`)
-              .from(SOURCE)
-              .at(Severity.FATAL);
+      const err = new ConfigurationError(
+        `DataQueries may only be added before the AppCore is published.`,
+      )
+        .from(SOURCE)
+        .at(Severity.FATAL);
       this.err(err);
       throw err;
     }
     if (this.dataQueriesByID.has(id)) {
       const err = new ConfigurationError(
-                      `Multiple DataQueries cannot share the same ID '${id}'.`)
-                      .from(SOURCE)
-                      .at(Severity.FATAL);
+        `Multiple DataQueries cannot share the same ID '${id}'.`,
+      )
+        .from(SOURCE)
+        .at(Severity.FATAL);
       this.err(err);
       throw err;
     }
@@ -94,8 +96,8 @@ export class AppCore {
     const ret = this.dataQueriesByID.get(id);
     if (ret === undefined) {
       const err = new ConfigurationError(`No defined DataQuery has ID '${id}'.`)
-                      .from(SOURCE)
-                      .at(Severity.FATAL);
+        .from(SOURCE)
+        .at(Severity.FATAL);
       this.err(err);
       throw err;
     }
@@ -113,11 +115,11 @@ export class AppCore {
   /** To be invoked once, when the AppCore is populated. */
   publish() {
     if (this.published) {
-      const err =
-          new ConfigurationError(
-              `Only one AppCore may be defined, and it may only be published once.`)
-              .from(SOURCE)
-              .at(Severity.FATAL);
+      const err = new ConfigurationError(
+        `Only one AppCore may be defined, and it may only be published once.`,
+      )
+        .from(SOURCE)
+        .at(Severity.FATAL);
       this.err(err);
       throw err;
     }
@@ -126,16 +128,18 @@ export class AppCore {
       cb(this);
     });
     combineLatest([...this.dataQueriesByID.values()].map((dq) => dq.loading))
-        .pipe(
-            map((loadingVals: boolean[]) => loadingVals.reduce(
-                    (acc: boolean, current: boolean) => acc || current,
-                    false,
-                    )),
-            distinctUntilChanged(),
-            )
-        .subscribe((loading: boolean) => {
-          this.anyDataQueryLoading.next(loading);
-        });
+      .pipe(
+        map((loadingVals: boolean[]) =>
+          loadingVals.reduce(
+            (acc: boolean, current: boolean) => acc || current,
+            false,
+          ),
+        ),
+        distinctUntilChanged(),
+      )
+      .subscribe((loading: boolean) => {
+        this.anyDataQueryLoading.next(loading);
+      });
     this.pendingCallbacks.length = 0;
   }
 
@@ -165,5 +169,34 @@ export class AppCore {
     } else {
       throw error;
     }
+  }
+}
+
+// A ValueRef that references a global Value by key.
+export class GlobalRef implements ValueRef {
+  key: string;
+  val: Value | undefined;
+
+  constructor(core: AppCore | null | undefined, key: string) {
+    this.key = key;
+    core?.onPublish(() => {
+      this.val = core.globalState.get(key);
+    });
+  }
+
+  get(unusedLocalState: ValueMap | undefined): Value | undefined {
+    if (this.val == null) {
+      throw new ConfigurationError(`No global value has the key '${this.key}'`)
+        .at(Severity.FATAL)
+        .from(SOURCE);
+    }
+    return this.val;
+  }
+
+  label(): string {
+    if (this.val == null) {
+      return `global undefined value '${this.key}'`;
+    }
+    return `global ${this.val.typeName()} '${this.key}'`;
   }
 }

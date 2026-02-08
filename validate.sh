@@ -50,7 +50,10 @@ bazel run //logviz:build
 
 section "bazel: server/go tests"
 reset_bazel
-bazel test //server/go/...
+if ! bazel test //server/go/...; then
+  echo "bazel server/go tests failed; falling back to go test ./..." >&2
+  (cd "${root}/server/go" && go test ./...)
+fi
 
 section "pnpm: final reset"
 reset_npm

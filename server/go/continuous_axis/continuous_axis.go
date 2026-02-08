@@ -40,32 +40,43 @@ const (
 	yAxisRenderMarkersHeightPxKey = "y_axis_render_markers_width_px"
 )
 
-// XAxisRenderSettings contains configuring an X axis.
-type XAxisRenderSettings struct {
+type RenderSettings struct {
 	LabelHeightPx   int64
 	MarkersHeightPx int64
 }
 
-// Apply annotates with the receiving XAxisRenderSettings.
-func (x XAxisRenderSettings) Apply() util.PropertyUpdate {
+type AxisRenderSettings struct {
+	RenderSettings
+	labelHeightKey   string
+	markersHeightKey string
+}
+
+// Define annotates with the receiving XAxisRenderSettings.
+func (rs *AxisRenderSettings) Define() util.PropertyUpdate {
 	return util.Chain(
-		util.IntegerProperty(xAxisRenderLabelHeightPxKey, x.LabelHeightPx),
-		util.IntegerProperty(xAxisRenderMarkersHeightPxKey, x.MarkersHeightPx),
+		util.IntegerProperty(rs.labelHeightKey, rs.LabelHeightPx),
+		util.IntegerProperty(rs.markersHeightKey, rs.MarkersHeightPx),
 	)
 }
 
-// YAxisRenderSettings contains configuring a Y axis.
-type YAxisRenderSettings struct {
-	LabelWidthPx   int64
-	MarkersWidthPx int64
+// NewXAxisRenderSettings returns a new XAxisRenderSettings with the specified
+// label and markers heights in pixels.
+func NewXAxisRenderSettings(rs RenderSettings) *AxisRenderSettings {
+	return &AxisRenderSettings{
+		RenderSettings:   rs,
+		labelHeightKey:   xAxisRenderLabelHeightPxKey,
+		markersHeightKey: xAxisRenderMarkersHeightPxKey,
+	}
 }
 
-// Apply annotates with the receiving YAxisRenderSettings.
-func (y YAxisRenderSettings) Apply() util.PropertyUpdate {
-	return util.Chain(
-		util.IntegerProperty(yAxisRenderLabelHeightPxKey, y.LabelWidthPx),
-		util.IntegerProperty(yAxisRenderMarkersHeightPxKey, y.MarkersWidthPx),
-	)
+// NewYAxisRenderSettings returns a new YAxisRenderSettings with the specified
+// label and markers widths in pixels.
+func NewYAxisRenderSettings(rs RenderSettings) *AxisRenderSettings {
+	return &AxisRenderSettings{
+		RenderSettings:   rs,
+		labelHeightKey:   yAxisRenderLabelHeightPxKey,
+		markersHeightKey: yAxisRenderMarkersHeightPxKey,
+	}
 }
 
 // Axis is implemented by types that can act as axes.

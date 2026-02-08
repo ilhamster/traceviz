@@ -51,6 +51,12 @@ var rs = &RenderSettings{
 		CategoryMinWidthCatPx:  0,
 		CategoryBaseWidthValPx: 0,
 	},
+	ContinuousAxisRenderSettings: continuousaxis.NewXAxisRenderSettings(
+		continuousaxis.RenderSettings{
+			LabelHeightPx:   10,
+			MarkersHeightPx: 20,
+		},
+	),
 }
 
 func TestTraceData(t *testing.T) {
@@ -122,6 +128,7 @@ func TestTraceData(t *testing.T) {
 				util.IntegerProperty(spanWidthCatPxKey, 0),
 				util.IntegerProperty(spanPaddingCatPxKey, 0),
 				rs.CategoryAxisRenderSettings.Define(),
+				rs.ContinuousAxisRenderSettings.Define(),
 			).Child().With(
 				util.IntegerProperty(nodeTypeKey, int64(categoryNodeType)),
 				cpu0Category.Define(),

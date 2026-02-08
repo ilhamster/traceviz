@@ -11,8 +11,8 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//logviz/analysis/log_trace",
-        "//server/go/category_axis",
         "//server/go/category",
+        "//server/go/category_axis",
         "//server/go/color",
         "//server/go/continuous_axis",
         "//server/go/table",

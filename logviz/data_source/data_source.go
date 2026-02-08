@@ -573,14 +573,18 @@ func idToColorSpace(id string) *color.Space {
 }
 
 var (
-	xAxisRenderSettings = continuousaxis.XAxisRenderSettings{
-		LabelHeightPx:   10,
-		MarkersHeightPx: 20,
-	}
-	yAxisRenderSettings = continuousaxis.YAxisRenderSettings{
-		LabelWidthPx:   10,
-		MarkersWidthPx: 30,
-	}
+	xAxisRenderSettings = continuousaxis.NewXAxisRenderSettings(
+		continuousaxis.RenderSettings{
+			LabelHeightPx:   10,
+			MarkersHeightPx: 20,
+		},
+	)
+	yAxisRenderSettings = continuousaxis.NewYAxisRenderSettings(
+		continuousaxis.RenderSettings{
+			LabelHeightPx:   10,
+			MarkersHeightPx: 30,
+		},
+	)
 )
 
 func handlePanAndZoomQuery(coll *Collection, qf *queryFilters, series util.DataBuilder, reqOpts map[string]*util.V) error {

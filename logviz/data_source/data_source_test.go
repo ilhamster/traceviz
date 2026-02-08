@@ -326,8 +326,8 @@ func TestQueries(t *testing.T) {
 				colorSpacesByLevelWeight[1].Define(),
 				colorSpacesByLevelWeight[2].Define(),
 				colorSpacesByLevelWeight[3].Define(),
-				xAxisRenderSettings.Apply(),
-				yAxisRenderSettings.Apply(),
+				xAxisRenderSettings.Define(),
+				yAxisRenderSettings.Define(),
 			)
 			// Fatal datapoints
 			s := chart.AddSeries(

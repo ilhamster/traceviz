@@ -196,3 +196,13 @@ func CompareResponses(t *testing.T, buildGotIf any, buildWantIf any) error {
 	}
 	return CompareDataResponses(t, gotDrb, wantDrb)
 }
+
+// NewDataBuilder returns a new util.DataBuilder for component-level testing.
+func NewDataBuilder() util.DataBuilder {
+	return util.NewDataResponseBuilder().DataSeries(
+		&util.DataSeriesRequest{
+			QueryName:  "",
+			SeriesName: "",
+		},
+	)
+}

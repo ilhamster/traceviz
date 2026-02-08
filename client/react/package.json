@@ -1,0 +1,19 @@
+{
+  "name": "@traceviz/client-react",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@traceviz/client-core": "workspace:*",
+    "@mantine/core": "^7.17.8",
+    "@mantine/notifications": "^7.17.8",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "rxjs": "~7.8.0"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.0.1",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.5",
+    "jsdom": "^25.0.1"
+  }
+}

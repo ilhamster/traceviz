@@ -187,7 +187,8 @@ const (
 // these two axes, so are suffixed 'TempPx' for a pixel extent along the
 // value axis, or 'CatPx' for a pixel extent along the category axis.
 type RenderSettings struct {
-	CategoryAxisRenderSettings *categoryaxis.RenderSettings
+	CategoryAxisRenderSettings   *categoryaxis.RenderSettings
+	ContinuousAxisRenderSettings *continuousaxis.AxisRenderSettings
 	// The width of a span along the category axis.  If x is the temporal axis,
 	// this is the default height of a span.
 	SpanWidthCatPx int64
@@ -202,6 +203,7 @@ func (rs *RenderSettings) Define() util.PropertyUpdate {
 		util.IntegerProperty(spanWidthCatPxKey, rs.SpanWidthCatPx),
 		util.IntegerProperty(spanPaddingCatPxKey, rs.SpanPaddingCatPx),
 		rs.CategoryAxisRenderSettings.Define(),
+		rs.ContinuousAxisRenderSettings.Define(),
 	)
 }
 

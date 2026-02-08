@@ -35,10 +35,11 @@ var (
 			CategoryPaddingCatPx:   2,
 			CategoryBaseWidthValPx: 100,
 		},
-		XAxisRenderSettings: &continuousaxis.XAxisRenderSettings{
-			LabelHeightPx:   20,
-			MarkersHeightPx: 10,
-		},
+		XAxisRenderSettings: continuousaxis.NewXAxisRenderSettings(
+			continuousaxis.RenderSettings{
+				LabelHeightPx:   20,
+				MarkersHeightPx: 10,
+			}),
 	}
 )
 
@@ -62,7 +63,7 @@ func TestBarChart(t *testing.T) {
 				util.IntegerProperty(barWidthCatPxKey, 20),
 				util.IntegerProperty(barPaddingCatPxKey, 1),
 				renderSettings.CategoryAxisRenderSettings.Define(),
-				renderSettings.XAxisRenderSettings.Apply(),
+				renderSettings.XAxisRenderSettings.Define(),
 			)
 			bc.Child().With(
 				category.New("apples", "apples", "apples").Define(),

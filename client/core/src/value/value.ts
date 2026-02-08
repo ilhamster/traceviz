@@ -20,6 +20,7 @@
 import {ReplaySubject} from 'rxjs';
 
 import {Duration} from '../duration/duration.js';
+import {ConfigurationError, Severity} from '../errors/errors.js';
 import {Timestamp} from '../timestamp/timestamp.js';
 
 /**
@@ -48,6 +49,8 @@ export enum ValueType {
   DURATION = 8,
   TIMESTAMP = 9
 }
+
+const SOURCE = 'value';
 
 /**
  * Represents a single Value expressed in JSON.
@@ -223,6 +226,287 @@ export interface Value extends ReplaySubject<Value> {
   // typeName returns the name of the type the receiver contains. It should
   // only be used for documentation.
   typeName(): string;
+}
+
+/**
+ * Encodes a Value into a deterministic string representation suitable for
+ * URL hashes.
+ */
+export function encodeValueToString(value: Value): string {
+  if (value instanceof StringValue) {
+    return value.val;
+  }
+  if (value instanceof StringListValue) {
+    return encodeStringList(value.val);
+  }
+  if (value instanceof StringSetValue) {
+    return encodeStringList(Array.from(value.val).sort());
+  }
+  if (value instanceof IntegerValue) {
+    return value.val.toString();
+  }
+  if (value instanceof IntegerListValue) {
+    return encodeNumberList(value.val);
+  }
+  if (value instanceof IntegerSetValue) {
+    return encodeNumberList(Array.from(value.val).sort((a, b) => a - b));
+  }
+  if (value instanceof DoubleValue) {
+    return value.val.toString();
+  }
+  if (value instanceof DurationValue) {
+    return value.val.nanos.toString();
+  }
+  if (value instanceof TimestampValue) {
+    return encodeTimestamp(value.val);
+  }
+  if (value instanceof EmptyValue) {
+    return '';
+  }
+  throw new ConfigurationError(
+      `can't encode value of type '${value.typeName()}'`)
+      .from(SOURCE)
+      .at(Severity.ERROR);
+}
+
+/**
+ * Decodes a string into the provided Value, returning false if decoding fails.
+ */
+export function decodeValueFromString(target: Value, encoded: string): boolean {
+  if (target instanceof StringValue) {
+    target.val = encoded;
+    return true;
+  }
+  if (target instanceof StringListValue || target instanceof StringSetValue) {
+    const list = decodeStringList(encoded);
+    if (list === null) {
+      return false;
+    }
+    return target.fold(new StringListValue(list), false, true);
+  }
+  if (target instanceof IntegerValue) {
+    const parsed = parseInteger(encoded);
+    if (parsed === null) {
+      return false;
+    }
+    target.val = parsed;
+    return true;
+  }
+  if (target instanceof IntegerListValue || target instanceof IntegerSetValue) {
+    const list = decodeIntegerList(encoded);
+    if (list === null) {
+      return false;
+    }
+    return target.fold(new IntegerListValue(list), false, true);
+  }
+  if (target instanceof DoubleValue) {
+    const parsed = parseNumber(encoded);
+    if (parsed === null) {
+      return false;
+    }
+    target.val = parsed;
+    return true;
+  }
+  if (target instanceof DurationValue) {
+    const parsed = parseDuration(encoded);
+    if (parsed === null) {
+      return false;
+    }
+    target.val = new Duration(parsed);
+    return true;
+  }
+  if (target instanceof TimestampValue) {
+    const parsed = parseTimestamp(encoded);
+    if (!parsed) {
+      return false;
+    }
+    target.val = new Timestamp(parsed.seconds, parsed.nanos);
+    return true;
+  }
+  if (target instanceof EmptyValue) {
+    return encoded === '';
+  }
+  return false;
+}
+
+function encodeStringList(items: string[]): string {
+  if (items.length === 0) {
+    return '';
+  }
+  return items.map(escapeListToken).join(',');
+}
+
+function decodeStringList(encoded: string): string[]|null {
+  if (encoded === '') {
+    return [];
+  }
+  const items: string[] = [];
+  let current = '';
+  let escaping = false;
+  for (let idx = 0; idx < encoded.length; idx += 1) {
+    const ch = encoded[idx];
+    if (escaping) {
+      current += ch;
+      escaping = false;
+      continue;
+    }
+    if (ch === '\\') {
+      escaping = true;
+      continue;
+    }
+    if (ch === ',') {
+      items.push(current);
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  if (escaping) {
+    return null;
+  }
+  items.push(current);
+  return items;
+}
+
+function escapeListToken(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/,/g, '\\,');
+}
+
+function encodeNumberList(items: number[]): string {
+  if (items.length === 0) {
+    return '';
+  }
+  return items.join(',');
+}
+
+function decodeIntegerList(encoded: string): number[]|null {
+  if (encoded === '') {
+    return [];
+  }
+  const parts = encoded.split(',');
+  const values: number[] = [];
+  for (const part of parts) {
+    const parsed = parseInteger(part);
+    if (parsed === null) {
+      return null;
+    }
+    values.push(parsed);
+  }
+  return values;
+}
+
+function parseInteger(encoded: string): number|null {
+  const trimmed = encoded.trim();
+  if (!/^-?\d+$/.test(trimmed)) {
+    return null;
+  }
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  return Math.floor(parsed);
+}
+
+function parseNumber(encoded: string): number|null {
+  const trimmed = encoded.trim();
+  if (trimmed === '') {
+    return null;
+  }
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  return parsed;
+}
+
+function parseDuration(encoded: string): number|null {
+  const trimmed = encoded.trim();
+  if (trimmed === '') {
+    return null;
+  }
+  const match =
+      /^(-?\d+(?:\.\d+)?)(ns|us|µs|μs|ms|s|m|h)?$/.exec(trimmed);
+  if (!match) {
+    return null;
+  }
+  const value = Number(match[1]);
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+  const unit = match[2] ?? 'ns';
+  let multiplier = 1;
+  switch (unit) {
+    case 'ns':
+      multiplier = 1;
+      break;
+    case 'us':
+    case 'µs':
+    case 'μs':
+      multiplier = 1_000;
+      break;
+    case 'ms':
+      multiplier = 1_000_000;
+      break;
+    case 's':
+      multiplier = 1_000_000_000;
+      break;
+    case 'm':
+      multiplier = 60 * 1_000_000_000;
+      break;
+    case 'h':
+      multiplier = 60 * 60 * 1_000_000_000;
+      break;
+    default:
+      return null;
+  }
+  return Math.round(value * multiplier);
+}
+
+function encodeTimestamp(ts: Timestamp): string {
+  const seconds = Math.floor(ts.seconds);
+  const nanos = Math.floor(ts.nanos);
+  if (nanos === 0) {
+    return `${seconds}`;
+  }
+  const nanosPadded = String(Math.abs(nanos)).padStart(9, '0');
+  const trimmed = nanosPadded.replace(/0+$/, '');
+  const sign = nanos < 0 ? '-' : '';
+  return `${seconds}.${sign}${trimmed}`;
+}
+
+function parseTimestamp(encoded: string):
+    {seconds: number, nanos: number}|null {
+  const trimmed = encoded.trim();
+  if (trimmed === '') {
+    return null;
+  }
+  if (/^-?\d+(?:\.\d+)?$/.test(trimmed)) {
+    const [secondsPart, nanosPart] = trimmed.split('.', 2);
+    const seconds = parseInteger(secondsPart);
+    if (seconds === null) {
+      return null;
+    }
+    if (!nanosPart) {
+      return {seconds, nanos: 0};
+    }
+    const match = /^(-?\d{1,9})$/.exec(nanosPart);
+    if (!match) {
+      return null;
+    }
+    const negative = match[1].startsWith('-');
+    const digits = negative ? match[1].slice(1) : match[1];
+    const nanos =
+        Number(digits.padEnd(9, '0')) * (negative ? -1 : 1);
+    return {seconds, nanos};
+  }
+  const parsedDate = new Date(trimmed);
+  const ms = parsedDate.getTime();
+  if (Number.isNaN(ms)) {
+    return null;
+  }
+  const seconds = Math.floor(ms / 1000);
+  const nanos = Math.floor((ms % 1000) * 1_000_000);
+  return {seconds, nanos};
 }
 
 /** An empty Value. */

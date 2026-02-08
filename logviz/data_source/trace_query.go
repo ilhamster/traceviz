@@ -105,7 +105,7 @@ func handleTraceQuery(coll *Collection, qf *queryFilters, series util.DataBuilde
 			category.New("x_axis", "Time", "Time from start of log"),
 			startTimestamp, endTimestamp),
 		traceRenderSettings).With(
-		xAxisRenderSettings.Apply(),
+		xAxisRenderSettings.Define(),
 		colorSpacesByLevelWeight[0].Define(),
 		colorSpacesByLevelWeight[1].Define(),
 		colorSpacesByLevelWeight[2].Define(),

@@ -1,0 +1,10 @@
+{
+  "spec_dir": "client/react",
+  "spec_files": [
+    "**/*_test.ts",
+    "**/*_test.tsx"
+  ],
+  "helpers": [
+    "spec/support/setup.cjs"
+  ]
+}

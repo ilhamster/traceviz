@@ -4,6 +4,7 @@
   "private": true,
   "workspaces": [
     "client/core",
+    "client/react",
     "client/angular",
     "client/angular/projects/traceviz-angular",
     "logviz/client"

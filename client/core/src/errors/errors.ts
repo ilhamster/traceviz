@@ -46,6 +46,32 @@ export enum Severity {
   WARNING,
 }
 
+export function AlertColor(sev: Severity): string {
+  switch (sev) {
+    case Severity.FATAL:
+      return 'grape';
+    case Severity.ERROR:
+      return 'red';
+    case Severity.WARNING:
+      return 'yellow';
+    default:
+      return 'gray';
+  }
+}
+
+export function AlertTitle(sev: Severity): string {
+  switch (sev) {
+    case Severity.FATAL:
+      return 'Fatal error';
+    case Severity.ERROR:
+      return 'Error';
+    case Severity.WARNING:
+      return 'Warning';
+    default:
+      return 'Notice';
+  }
+}
+
 /**
  * Indicates an error in the TraceViz tool configuration: either in the template
  * configuration or in the DataSeries received from the backend data source.

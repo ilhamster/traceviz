@@ -97,7 +97,7 @@ type RenderSettings struct {
 	// value axis, this is the vertical spacing between bars.
 	BarPaddingCatPx            int64
 	CategoryAxisRenderSettings *categoryaxis.RenderSettings
-	XAxisRenderSettings        *continuousaxis.XAxisRenderSettings
+	XAxisRenderSettings        *continuousaxis.AxisRenderSettings
 }
 
 // Defines the receiver as a set of property updates.
@@ -106,7 +106,7 @@ func (rs *RenderSettings) define() util.PropertyUpdate {
 		util.IntegerProperty(barWidthCatPxKey, rs.BarWidthCatPx),
 		util.IntegerProperty(barPaddingCatPxKey, rs.BarPaddingCatPx),
 		rs.CategoryAxisRenderSettings.Define(),
-		rs.XAxisRenderSettings.Apply(),
+		rs.XAxisRenderSettings.Define(),
 	)
 }
 

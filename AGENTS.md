@@ -16,3 +16,6 @@
 
 ## Cross-language architecture
 - TODO: Document the data flow between Go producers (visualization data), TS libraries (data consumers/visualizable objects), and Angular components (view rendering).
+
+## TypeScript/React
+- Prefer explicit types for component props, hook state, and helper functions (avoid implicit `any`).

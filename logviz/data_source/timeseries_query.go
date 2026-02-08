@@ -158,10 +158,11 @@ func handleTimeseriesQuery(coll *Collection, qf *queryFilters, series util.DataB
 			qf.startTimestamp, qf.endTimestamp),
 		continuousaxis.NewDoubleAxis(
 			category.New("y_axis", "Messages per "+binNormalizationLabel, "Log messages per "+binNormalizationLabel),
-			0, yAxisMax), seriesColorSpaces...).With(
-		xAxisRenderSettings.Apply(),
-		yAxisRenderSettings.Apply(),
-	)
+			0, yAxisMax), seriesColorSpaces...).
+		With(
+			xAxisRenderSettings.Define(),
+			yAxisRenderSettings.Define(),
+		)
 	for _, seriesName := range seriesNames {
 		si := seriesInfoByName[seriesName]
 		timeseries := chart.AddSeries(
