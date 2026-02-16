@@ -1,4 +1,10 @@
-load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+# gazelle:prefix github.com/ilhamster/traceviz/logviz
+# gazelle:exclude angular-client
+# gazelle:exclude react-client
+
+load("@gazelle//:def.bzl", "gazelle")
+
+gazelle(name = "gazelle")
 
 sh_binary(
     name = "build_go",
@@ -35,6 +41,6 @@ sh_binary(
         "--server-bin",
         "$(rootpath //logviz/server:server)",
     ],
-    data = ["//logviz/server"],
+    data = ["//logviz/server:server"],
     visibility = ["//visibility:public"],
 )

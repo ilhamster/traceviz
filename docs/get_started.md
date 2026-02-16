@@ -37,11 +37,11 @@ If all goes well, either of these commands will:
 and conclude with a message like:
 
 ```sh
-Serving LogViz at http://mac.lan:7410
+Serving LogViz at http://mac.lan:7410/angular
 ```
 
 Open that link in a browser (you may be able to click it) to explore LogViz.
-You can read [its template](../logviz/client/src/app/app.component.html) to
+You can read [its template](../logviz/angular-client/src/app/app.component.html) to
 learn about its capabilities, but among other things,
 
 *   Mousing over a row in the 'Source files' table (upper left) highlights log

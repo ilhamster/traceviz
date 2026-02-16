@@ -3,6 +3,8 @@ set -euo pipefail
 
 server_bin=""
 resource_root="${RESOURCE_ROOT:-}"
+angular_root="${ANGULAR_ROOT:-}"
+react_root="${REACT_ROOT:-}"
 log_root="${LOG_ROOT:-}"
 
 while [[ $# -gt 0 ]]; do
@@ -23,8 +25,14 @@ if [[ -z "${root}" ]]; then
   exit 2
 fi
 
-if [[ -z "${resource_root}" ]]; then
-  resource_root="${root}/logviz/client/dist/client"
+if [[ -z "${angular_root}" ]] && [[ -n "${resource_root}" ]]; then
+  angular_root="${resource_root}"
+fi
+if [[ -z "${angular_root}" ]]; then
+  angular_root="${root}/logviz/angular-client/dist/angular-client"
+fi
+if [[ -z "${react_root}" ]]; then
+  react_root="${root}/logviz/react-client/dist"
 fi
 
 resolve_runfile() {
@@ -77,10 +85,11 @@ if [[ ! -x "${server_bin}" ]]; then
 fi
 
 if [[ "${SKIP_CLIENT_BUILD:-}" != "1" ]]; then
-  "${root}/logviz/client/bazel_npm.sh" build
+  "${root}/logviz/angular-client/bazel_npm.sh" build
+  "${root}/logviz/react-client/bazel_npm.sh" build
 fi
 
-args=(--resource_root "${resource_root}")
+args=(--angular_root "${angular_root}" --react_root "${react_root}")
 if [[ -n "${log_root}" ]]; then
   args+=(--log_root "${log_root}")
 fi

@@ -104,12 +104,12 @@ func New(assetRoot, collectionRoot string, cap int) (*Service, error) {
 			),
 		)
 	}
-	addFileAsset("/logviz-theme.css", "text/css", "logviz-theme.css")
-	addFileAsset("/index.html", "text/html", "index.html")
-	addFileAsset("main.js", "application/javascript", "main.js")
-	addFileAsset("polyfills.js", "application/javascript", "polyfills.js")
-	addFileAsset("runtime.js", "application/javascript", "runtime.js")
-	addFileAsset("/favicon.ico", "image/x-icon", "favicon.ico")
+	addFileAsset("/angular/logviz-theme.css", "text/css", "logviz-theme.css")
+	addFileAsset("/angular/index.html", "text/html", "index.html")
+	addFileAsset("/angular/main.js", "application/javascript", "main.js")
+	addFileAsset("/angular/polyfills.js", "application/javascript", "polyfills.js")
+	addFileAsset("/angular/runtime.js", "application/javascript", "runtime.js")
+	addFileAsset("/angular/favicon.ico", "image/x-icon", "favicon.ico")
 	return &Service{
 		queryHandler: handlers.NewQueryHandler(qd),
 		assetHandler: assetHandler,

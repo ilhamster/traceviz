@@ -95,6 +95,9 @@ export type DataTableProps = {
   loading?: boolean;
   className?: string;
   withPagination?: boolean;
+  scrollable?: boolean;
+  rowHeightPxOverride?: number;
+  fontSizePxOverride?: number;
 };
 
 export function DataTable({
@@ -103,9 +106,15 @@ export function DataTable({
   loading = false,
   className,
   withPagination = true,
+  scrollable = true,
+  rowHeightPxOverride,
+  fontSizePxOverride,
 }: DataTableProps): JSX.Element {
   const appCore = useAppCore();
   const componentRef = useRef<HTMLDivElement | null>(null);
+  const paginationRef = useRef<HTMLDivElement | null>(null);
+  const headerRef = useRef<HTMLTableRowElement | null>(null);
+  const sampleRowRef = useRef<HTMLTableRowElement | null>(null);
   const [table, setTable] = useState<CanonicalTable | null>(null);
   const [columns, setColumns] = useState<Header[]>([]);
   const [rows, setRows] = useState<Row[]>([]);
@@ -117,9 +126,12 @@ export function DataTable({
   });
   const [, forceRender] = useReducer((n: number) => n + 1, 0);
 
-  const rowHeightPx = table?.renderProperties.rowHeightPx ?? 20;
+  const rowHeightPx =
+    rowHeightPxOverride ?? table?.renderProperties.rowHeightPx ?? 20;
   const fontSizePx =
-    table?.renderProperties.fontSizePx ?? Math.round(rowHeightPx * 0.66);
+    fontSizePxOverride ??
+    table?.renderProperties.fontSizePx ??
+    Math.round(rowHeightPx * 0.66);
 
   // Update the visible rows based on the current page index and size.
   const updateRows = (): void => {
@@ -143,7 +155,31 @@ export function DataTable({
     }
     const container = componentRef.current;
     const height = container.offsetHeight;
-    const rowsPerPage = Math.max(1, Math.floor(height / (rowHeightPx + 2)) - 1);
+    const footerHeight = paginationRef.current?.offsetHeight ?? 0;
+    const headerHeight = headerRef.current?.offsetHeight ?? rowHeightPx;
+    const measuredRowHeight =
+      sampleRowRef.current?.offsetHeight ?? rowHeightPx;
+    const computedStyle = window.getComputedStyle(container);
+    const paddingTop = parseFloat(computedStyle.paddingTop) || 0;
+    const paddingBottom = parseFloat(computedStyle.paddingBottom) || 0;
+    const availableHeight = Math.max(
+      0,
+      height - footerHeight - headerHeight - paddingTop - paddingBottom,
+    );
+    const rowsPerPage = Math.max(
+      1,
+      Math.floor(availableHeight / Math.max(measuredRowHeight, 1)),
+    );
+    console.log("[DataTable] sizing", {
+      height,
+      footerHeight,
+      headerHeight,
+      measuredRowHeight,
+      paddingTop,
+      paddingBottom,
+      availableHeight,
+      rowsPerPage,
+    });
     setPageSize(rowsPerPage);
     setPageIndex(0);
   };
@@ -186,16 +222,28 @@ export function DataTable({
   }, [table, withPagination, rowHeightPx]);
 
   useEffect(() => {
-    if (!componentRef.current) {
+    if (!withPagination) {
       return;
     }
-    const node = componentRef.current;
     const ro = new ResizeObserver(() => {
       redraw();
     });
-    ro.observe(node);
+    const nodes: Array<Element> = [];
+    if (componentRef.current) {
+      nodes.push(componentRef.current);
+    }
+    if (paginationRef.current) {
+      nodes.push(paginationRef.current);
+    }
+    if (headerRef.current) {
+      nodes.push(headerRef.current);
+    }
+    if (sampleRowRef.current) {
+      nodes.push(sampleRowRef.current);
+    }
+    nodes.forEach((node) => ro.observe(node));
     return () => ro.disconnect();
-  }, [withPagination, rowHeightPx]);
+  }, [withPagination, rowHeightPx, rows.length]);
 
   useEffect(() => {
     if (!interactions) {
@@ -395,8 +443,8 @@ export function DataTable({
         <Text size="sm" c="dimmed">
           No data.
         </Text>
-      ) : (
-        <ScrollArea>
+      ) : scrollable ? (
+        <ScrollArea className="table-scroll">
           <Table
             striped
             highlightOnHover
@@ -405,8 +453,8 @@ export function DataTable({
             style={{ fontSize: `${fontSizePx}px` }}
           >
             <Table.Thead>
-              <Table.Tr style={{ height: rowHeightPx }}>
-                {columns.map((column) => (
+            <Table.Tr ref={headerRef} style={{ height: rowHeightPx }}>
+              {columns.map((column) => (
                   <Table.Th
                     key={column.category.id}
                     title={column.category.description}
@@ -422,6 +470,7 @@ export function DataTable({
               {rows.map((row, idx) => (
                 <Table.Tr
                   key={idx}
+                  ref={idx === 0 ? sampleRowRef : undefined}
                   style={{ height: rowHeightPx, ...rowStyle(row) }}
                   onMouseOver={() => rowMouseover(row)}
                   onMouseOut={() => rowMouseout(row)}
@@ -442,14 +491,64 @@ export function DataTable({
             </Table.Tbody>
           </Table>
         </ScrollArea>
+      ) : (
+        <div className="table-content">
+          <Table
+            striped
+            highlightOnHover
+            withTableBorder
+            withColumnBorders
+            style={{ fontSize: `${fontSizePx}px` }}
+          >
+            <Table.Thead>
+            <Table.Tr ref={headerRef} style={{ height: rowHeightPx }}>
+              {columns.map((column) => (
+                  <Table.Th
+                    key={column.category.id}
+                    title={column.category.description}
+                    onClick={() => handleSort(column)}
+                    style={{ textAlign: "left", fontSize: "75%" }}
+                  >
+                    {column.category.displayName}
+                  </Table.Th>
+                ))}
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+            {rows.map((row, idx) => (
+              <Table.Tr
+                key={idx}
+                ref={idx === 0 ? sampleRowRef : undefined}
+                style={{ height: rowHeightPx, ...rowStyle(row) }}
+                onMouseOver={() => rowMouseover(row)}
+                onMouseOut={() => rowMouseout(row)}
+                onClick={(ev) => rowClick(row, ev.shiftKey)}
+              >
+                  {row.cells(columns).map((cell, cellIdx) => (
+                    <Table.Td
+                      key={`${idx}-${cellIdx}`}
+                      title={cellLabel(cell) || cell.value.toString()}
+                    >
+                      <div style={cellStyle(cell, row)}>
+                        {cell.value.toString()}
+                      </div>
+                    </Table.Td>
+                  ))}
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+        </div>
       )}
-      {withPagination && pageCount > 1 ? (
-        <Pagination
-          value={pageIndex + 1}
-          onChange={(page) => setPageIndex(page - 1)}
-          total={pageCount}
-          mt="sm"
-        />
+      {withPagination ? (
+        <div ref={paginationRef} className="table-pagination">
+          <Pagination
+            value={pageIndex + 1}
+            onChange={(page) => setPageIndex(page - 1)}
+            total={pageCount}
+            mt="sm"
+          />
+        </div>
       ) : null}
     </div>
   );

@@ -16,11 +16,13 @@ fi
 case "${cmd}" in
   build)
     "${root}/logviz/bazel_go.sh" build
-    "${root}/logviz/client/bazel_npm.sh" build
+    "${root}/logviz/angular-client/bazel_npm.sh" build
+    "${root}/logviz/react-client/bazel_npm.sh" build
     ;;
   test)
     "${root}/logviz/bazel_go.sh" test
-    "${root}/logviz/client/bazel_npm.sh" test
+    "${root}/logviz/angular-client/bazel_npm.sh" test
+    "${root}/logviz/react-client/bazel_npm.sh" test
     ;;
   *)
     echo "unknown command: ${cmd}" >&2

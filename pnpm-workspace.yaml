@@ -3,7 +3,8 @@ packages:
   - client/react
   - client/angular
   - client/angular/projects/traceviz-angular
-  - logviz/client
+  - logviz/angular-client
+  - logviz/react-client
 
 onlyBuiltDependencies:
   - '@parcel/watcher@2.5.4'

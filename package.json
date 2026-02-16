@@ -7,12 +7,13 @@
     "client/react",
     "client/angular",
     "client/angular/projects/traceviz-angular",
-    "logviz/client"
+    "logviz/angular-client",
+    "logviz/react-client"
   ],
 
   "scripts": {
-    "clean": "rimraf client/angular/dist client/core/dist client/angular/.angular client/core/.angular client/core/.tsbuildinfo logviz/client/dist logviz/client/.angular",
-    "deep-clean": "rimraf node_modules pnpm-lock.yaml client/angular/node_modules client/core/node_modules logviz/client/node_modules",
+    "clean": "rimraf client/angular/dist client/core/dist client/angular/.angular client/core/.angular client/core/.tsbuildinfo logviz/angular-client/dist logviz/angular-client/.angular logviz/react-client/dist logviz/react-client/.vite",
+    "deep-clean": "rimraf node_modules pnpm-lock.yaml client/angular/node_modules client/core/node_modules logviz/angular-client/node_modules logviz/react-client/node_modules",
     "reset": "pnpm install && pnpm run clean && pnpm run deep-clean",
     "bazel-reset": "rimraf .aspect && bazel clean --expunge",
     "reset-all": "pnpm run bazel-reset && pnpm run reset",
@@ -20,12 +21,12 @@
     "install:all": "pnpm install",
     "install:core": "pnpm --filter ./client/core install",
     "install:angular": "pnpm --filter ./client/angular install",
-    "install:logviz": "pnpm --filter ./logviz/client install",
+    "install:logviz": "pnpm --filter ./logviz/angular-client install && pnpm --filter ./logviz/react-client install",
 
     "build": "pnpm run build:core && pnpm run build:angular",
     "build:core": "pnpm --filter ./client/core run build",
     "build:angular": "pnpm --filter ./client/angular exec ng build",
-    "build:logviz": "pnpm --filter ./logviz/client run build",
+    "build:logviz": "pnpm --filter ./logviz/angular-client run build && pnpm --filter ./logviz/react-client run build",
 
     "test": "pnpm run test:core && pnpm run test:angular",
     "test:core": "pnpm --filter ./client/core run test",
@@ -36,7 +37,7 @@
 
     "ib:logviz": "pnpm run install:logviz && pnpm run build:logviz",
 
-    "run:logviz": "cd logviz && go run server/server.go --resource_root ./client/dist/client",
+    "run:logviz": "cd logviz && go run server/server.go --angular_root ./angular-client/dist/angular-client --react_root ./react-client/dist",
 
     "demo": "pnpm run ibt && pnpm run ib:logviz && pnpm run run:logviz"
   },
