@@ -39,6 +39,7 @@ const (
 	traceQuery                     = "logs.trace"
 	panAndZoomQuery                = "logs.pan_and_zoom"
 
+	appThemeKey            = "app_theme"
 	collectionNameKey      = "collection_name"
 	endTimestampKey        = "end_timestamp"
 	entriesKey             = "entries"
@@ -299,6 +300,13 @@ func (ds *DataSource) HandleDataSeriesRequests(ctx context.Context, globalFilter
 	if err != nil {
 		return fmt.Errorf("required filter option '%s' must be a string", collectionNameKey)
 	}
+	appTheme := "light"
+	if appThemeVal, ok := globalFilters[appThemeKey]; ok {
+		appTheme, err = util.ExpectStringValue(appThemeVal)
+		if err != nil {
+			appTheme = "light"
+		}
+	}
 	// Fetch the collection, from the cache if it's there.
 	coll, err := ds.fetchCollection(ctx, collectionName)
 	if err != nil {
@@ -317,11 +325,11 @@ func (ds *DataSource) HandleDataSeriesRequests(ctx context.Context, globalFilter
 		case aggregateSourceFilesTableQuery:
 			err = handleSourceFileTableQuery(coll, qf, series, req.Options)
 		case rawEntriesQuery:
-			err = handleRawEntriesQuery(coll, qf, series, req.Options)
+			err = handleRawEntriesQuery(coll, appTheme, qf, series, req.Options)
 		case timeseriesQuery:
-			err = handleTimeseriesQuery(coll, qf, series, req.Options)
+			err = handleTimeseriesQuery(coll, appTheme, qf, series, req.Options)
 		case traceQuery:
-			err = handleTraceQuery(coll, qf, series, req.Options)
+			err = handleTraceQuery(coll, appTheme, qf, series, req.Options)
 		case panAndZoomQuery:
 			err = handlePanAndZoomQuery(coll, qf, series, req.Options)
 		default:
@@ -498,20 +506,32 @@ var eventFormatStr = fmt.Sprintf("[$(%s)] $(%s) ($(%s)): $(%s)",
 )
 
 var (
+	lightTheme = "light"
+	darkTheme  = "dark"
+)
+
+var (
 	fatalColorSpace   = "fatal_color"
 	errorColorSpace   = "error_color"
 	warningColorSpace = "warning_color"
 	infoColorSpace    = "info_color"
 )
 
-var colorSpacesByLevelWeight = map[int]*color.Space{
-	0: color.NewSpace(fatalColorSpace, "rgba(153, 0, 0, .5)"),
-	1: color.NewSpace(errorColorSpace, "rgba(255, 0, 0, .5)"),
-	2: color.NewSpace(warningColorSpace, "rgba(255, 153, 0, .5)"),
-	3: color.NewSpace(infoColorSpace, "rgba(153, 153, 153, .5)"),
+var colorSpacesByThemeAndLevelWeight = map[string]map[int]*color.Space{
+	lightTheme: map[int]*color.Space{
+		0: color.NewSpace(fatalColorSpace, "rgba(153, 0, 0, .5)"),
+		1: color.NewSpace(errorColorSpace, "rgba(255, 0, 0, .5)"),
+		2: color.NewSpace(warningColorSpace, "rgba(255, 153, 0, .5)"),
+		3: color.NewSpace(infoColorSpace, "rgba(153, 153, 153, .5)"),
+	},
+	darkTheme: map[int]*color.Space{
+		0: color.NewSpace(fatalColorSpace, "rgba(197, 4, 255, 0.5)"),
+		1: color.NewSpace(errorColorSpace, "rgba(255, 0, 0, .5)"),
+		2: color.NewSpace(warningColorSpace, "rgba(255, 153, 0, .5)"),
+		3: color.NewSpace(infoColorSpace, "rgba(214, 214, 214, 0.5)")},
 }
 
-func handleRawEntriesQuery(coll *Collection, qf *queryFilters, tableDb util.DataBuilder, reqOpts map[string]*util.V) error {
+func handleRawEntriesQuery(coll *Collection, appTheme string, qf *queryFilters, tableDb util.DataBuilder, reqOpts map[string]*util.V) error {
 	var err error
 	searchRegexStr := ""
 	if searchRegexVal, ok := reqOpts[searchRegexKey]; ok {
@@ -528,7 +548,7 @@ func handleRawEntriesQuery(coll *Collection, qf *queryFilters, tableDb util.Data
 		}
 	}
 	t := table.New(tableDb, renderSettings, eventCol)
-	for _, colorSpace := range colorSpacesByLevelWeight {
+	for _, colorSpace := range colorSpacesByThemeAndLevelWeight[appTheme] {
 		t.With(colorSpace.Define())
 	}
 	// Aggregate across all filtered-in log entries.
@@ -538,7 +558,7 @@ func handleRawEntriesQuery(coll *Collection, qf *queryFilters, tableDb util.Data
 				return nil
 			}
 		}
-		coloring := colorSpacesByLevelWeight[entry.Level.Weight]
+		coloring := colorSpacesByThemeAndLevelWeight[appTheme][entry.Level.Weight]
 		var primaryColor util.PropertyUpdate
 		if coloring != nil {
 			primaryColor = coloring.PrimaryColor(1)

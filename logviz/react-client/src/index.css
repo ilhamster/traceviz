@@ -7,9 +7,33 @@ body,
 
 :root {
   color-scheme: light;
+  --bg: #eef1f4;
+  --bg-grad: linear-gradient(180deg, #f4f7fb 0%, #e9edf3 100%);
+  --panel: #f8fafc;
+  --panel-border: #cfd7e3;
+  --text: #1b2430;
+  --muted: #526273;
+  --accent: #d6e6ff;
+  --input-bg: #fff;
+  --toggle-bg: #e8edf5;
+  --toggle-border: #b7c4d8;
+  --toggle-text: #1b2430;
   font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
-  color: #1b1c1e;
-  background: radial-gradient(circle at top, #f5f7ff 0%, #fefefe 45%, #f1f2f8 100%);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1b2028;
+  --bg-grad: linear-gradient(180deg, #161b22 0%, #202632 100%);
+  --panel: #242b36;
+  --panel-border: #3d4a5d;
+  --text: #e4ebf5;
+  --muted: #a3b2c8;
+  --accent: #33445f;
+  --input-bg: #1d2530;
+  --toggle-bg: #2b3646;
+  --toggle-border: #4c5e79;
+  --toggle-text: #e4ebf5;
 }
 
 * {
@@ -18,115 +42,118 @@ body,
 
 body {
   margin: 0;
+  color: var(--text);
+  background: var(--bg-grad);
 }
 
 .logviz {
-  max-width: 1600px;
-  margin: 0 auto;
-  padding: 24px 16px;
-  display: grid;
-  gap: 32px;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 8px;
   height: 100vh;
-  grid-template-rows: auto 1fr auto;
+  display: grid;
+  gap: 8px;
+  grid-template-rows: auto 1.3fr 1fr auto;
   overflow: hidden;
 }
 
-.hero {
+.topbar {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
-  gap: 24px;
-  background: white;
-  border-radius: 20px;
-  padding: 32px;
-  box-shadow: 0 20px 50px rgba(19, 24, 46, 0.12);
+  padding: 8px 10px;
+  border: 1px solid var(--panel-border);
+  background: var(--panel);
 }
 
-.eyebrow {
-  text-transform: uppercase;
-  letter-spacing: 0.2em;
-  font-size: 12px;
+.topbar h1 {
+  margin: 0;
+  font-size: 16px;
   font-weight: 600;
-  color: #5a5f7a;
-  margin: 0 0 8px;
+  letter-spacing: 0.01em;
 }
 
-h1 {
-  margin: 0;
-  font-size: 40px;
+.theme-toggle {
+  border: 1px solid var(--toggle-border);
+  background: var(--toggle-bg);
+  color: var(--toggle-text);
+  border-radius: 3px;
+  padding: 5px;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
 }
 
-.subtitle {
-  margin: 0;
-  color: #4b4f66;
-  font-size: 15px;
-  line-height: 1.6;
-  max-width: 420px;
+.theme-toggle:hover {
+  filter: brightness(1.03);
 }
 
 .cards {
   display: grid;
-  gap: 24px;
-  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
-  align-items: stretch;
+  gap: 8px;
   min-height: 0;
+  grid-template-columns: 1fr 1fr;
 }
 
 .card {
-  background: #ffffffee;
-  border-radius: 18px;
-  padding: 20px;
-  border: 1px solid #e0e3f5;
-  box-shadow: 0 12px 30px rgba(33, 38, 60, 0.08);
-  display: flex;
-  flex-direction: column;
   min-height: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+  border: 1px solid var(--panel-border);
+  background: var(--panel);
 }
 
 .card-header {
   display: flex;
-  justify-content: space-between;
-  gap: 16px;
   align-items: center;
-  margin-bottom: 16px;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
 .card-header h2 {
   margin: 0;
-  font-size: 20px;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .card-header p {
-  margin: 4px 0 0;
-  font-size: 13px;
-  color: #6b708a;
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .search {
-  border-radius: 999px;
-  border: 1px solid #d0d4e8;
-  padding: 10px 16px;
-  min-width: 240px;
-  font-size: 14px;
+  min-width: 180px;
+  font-size: 12px;
+  padding: 5px 8px;
+  border: 1px solid var(--panel-border);
+  border-radius: 2px;
+  background: var(--input-bg);
+  color: var(--text);
 }
 
 .table-wrapper {
-  border-radius: 12px;
-  border: 1px solid #e1e5f2;
-  background: white;
-  padding: 6px 8px 10px;
-  flex: 1;
+  border: 1px solid var(--panel-border);
+  background: var(--input-bg);
+  padding: 2px 4px 4px;
   min-height: 0;
+  flex: 1;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
 }
 
 .table-content {
-  flex: 1;
   min-height: 0;
+  flex: 1;
   overflow: hidden;
 }
 
@@ -138,39 +165,73 @@ h1 {
 
 .table-wrapper table th,
 .table-wrapper table td {
-  padding: 6px 8px;
+  padding: 3px 6px;
+  font-size: 12px;
+}
+
+.table-wrapper table tr[data-hover] {
+  background: var(--accent);
 }
 
 .state-band {
-  background: #ffffffdd;
-  border-radius: 16px;
-  border: 1px solid #e0e3f5;
-  box-shadow: 0 10px 24px rgba(33, 38, 60, 0.08);
-  padding: 16px 20px;
+  border: 1px solid var(--panel-border);
+  background: var(--panel);
+  padding: 8px;
   display: grid;
-  gap: 12px;
+  gap: 6px;
   min-height: 0;
+}
+
+.chart-band {
+  border: 1px solid var(--panel-border);
+  background: var(--panel);
+  padding: 8px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chart-header h2 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.chart-wrapper {
+  min-height: 0;
+  flex: 1;
+  border: 1px solid var(--panel-border);
+  background: var(--input-bg);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+
+.line-chart-content {
+  min-height: 0;
+  flex: 1;
 }
 
 .state-header h2 {
   margin: 0;
-  font-size: 16px;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .state-header p {
-  margin: 4px 0 0;
-  font-size: 12px;
-  color: #6b708a;
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 10px;
 }
 
 .state-content {
-  min-height: 120px;
-  max-height: 160px;
+  min-height: 92px;
+  max-height: 120px;
   overflow: auto;
-  border-radius: 12px;
-  border: 1px solid #e6e9f5;
-  background: #f8f9ff;
-  padding: 8px;
+  border: 1px solid var(--panel-border);
+  background: var(--input-bg);
+  padding: 4px;
 }
 
 .raw-events {
@@ -188,13 +249,12 @@ h1 {
 
 .raw-events table th,
 .raw-events table td {
-  padding: 4px 6px;
+  padding: 2px 4px;
 }
 
-@media (max-width: 860px) {
-  .hero {
-    flex-direction: column;
-    align-items: flex-start;
+@media (max-width: 980px) {
+  .cards {
+    grid-template-columns: 1fr;
   }
 
   .card-header {

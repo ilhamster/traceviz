@@ -1,24 +1,38 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Action,
+  And,
   AppCore,
+  Case,
+  Changed,
   Clear,
   DataQuery,
   DataSeriesQuery,
+  Do,
+  Equals,
+  FixedValue,
   HttpDataFetcher,
+  IntegerValue,
   Includes,
   Interactions,
+  Keypress,
   LocalValue,
+  Not,
+  Or,
+  Predicate,
   Reaction,
   Set as SetAction,
   SetOrClear,
   StringSetValue,
   StringValue,
+  Switch,
   Timestamp,
   TimestampValue,
   Toggle,
+  True,
   Value,
   ValueMap,
+  Watch,
   type KeyedValueRef,
   type ResponseNode,
 } from "@traceviz/client-core";
@@ -27,9 +41,10 @@ import {
   DataTable,
   ErrorToast,
   GlobalStateMonitor,
+  LineChart,
   useValue,
 } from "@traceviz/client-react";
-import { BehaviorSubject, type Subscription } from "rxjs";
+import { type Subscription } from "rxjs";
 
 const EMPTY_TIMESTAMP = new Timestamp(0, 0);
 
@@ -38,6 +53,8 @@ const TIMESTAMP_KEY = "timestamp";
 
 const QUERY_SOURCE_FILES = "logs.aggregate_source_files_table";
 const QUERY_RAW_ENTRIES = "logs.raw_entries";
+const QUERY_TIMESERIES = "logs.timeseries";
+const QUERY_PAN_AND_ZOOM = "logs.pan_and_zoom";
 
 type LogvizValues = {
   collectionName: StringValue;
@@ -48,6 +65,8 @@ type LogvizValues = {
   calledOutTimestamp: TimestampValue;
   sourceFileSearchRegex: StringValue;
   rawEventSearchRegex: StringValue;
+  depressedKeyCodes: StringSetValue;
+  appTheme: StringValue;
   pan: StringValue;
   zoom: StringValue;
 };
@@ -80,8 +99,10 @@ function createLogvizState(): LogvizState {
     calledOutTimestamp: new TimestampValue(EMPTY_TIMESTAMP),
     sourceFileSearchRegex: new StringValue(""),
     rawEventSearchRegex: new StringValue(""),
-    pan: new StringValue("none"),
-    zoom: new StringValue("none"),
+    depressedKeyCodes: new StringSetValue(new Set([])),
+    appTheme: new StringValue("light"),
+    pan: new StringValue(""),
+    zoom: new StringValue(""),
   };
 
   const core = new AppCore();
@@ -99,6 +120,8 @@ function createLogvizState(): LogvizState {
     values.sourceFileSearchRegex
   );
   core.globalState.set("raw_event_search_regex", values.rawEventSearchRegex);
+  core.globalState.set("depressed_key_codes", values.depressedKeyCodes);
+  core.globalState.set("app_theme", values.appTheme);
   core.globalState.set("pan", values.pan);
   core.globalState.set("zoom", values.zoom);
 
@@ -111,8 +134,7 @@ function createLogvizState(): LogvizState {
         ["filtered_source_files", values.filteredSourceFiles],
         ["start_timestamp", values.filteredTimerangeStart],
         ["end_timestamp", values.filteredTimerangeEnd],
-        ["pan", values.pan],
-        ["zoom", values.zoom],
+        ["app_theme", values.appTheme],
       ])
     )
   );
@@ -126,15 +148,27 @@ function createLogvizState(): LogvizState {
 type SeriesResult = {
   data?: ResponseNode;
   loading: boolean;
-  triggerFetch: () => void;
 };
 
+function shouldIgnoreKeypress(event: KeyboardEvent): boolean {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  if (target.isContentEditable) {
+    return true;
+  }
+  const tag = target.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+}
+
+// Create a DataSeries with the specified name and parameters
 function useDataSeries(
   dataQuery: DataQuery,
   queryName: string,
-  parameters: ValueMap
+  parameters: ValueMap,
+  fetch: Predicate
 ): SeriesResult {
-  const fetchSignal = useMemo(() => new BehaviorSubject<boolean>(false), []);
   const [data, setData] = useState<ResponseNode | undefined>(undefined);
   const [loading, setLoading] = useState<boolean>(false);
 
@@ -143,7 +177,7 @@ function useDataSeries(
       dataQuery,
       new StringValue(queryName),
       parameters,
-      fetchSignal
+      fetch.match()()
     );
     const subscriptions: Subscription[] = [];
     subscriptions.push(seriesQuery.response.subscribe(setData));
@@ -152,30 +186,26 @@ function useDataSeries(
       subscriptions.forEach((sub) => sub.unsubscribe());
       seriesQuery.dispose();
     };
-  }, [dataQuery, fetchSignal, parameters, queryName]);
+  }, [dataQuery, fetch, parameters, queryName]);
 
-  const triggerFetch = useCallback(() => {
-    fetchSignal.next(true);
-    fetchSignal.next(false);
-  }, [fetchSignal]);
-
-  return { data, loading, triggerFetch };
+  return { data, loading };
 }
 
 export default function App(): JSX.Element {
   const logviz = useMemo(() => createLogvizState(), []);
-  const emptySet = useMemo(() => new globalThis.Set<string>(), []);
 
   const sourceSearch = useValue(logviz.values.sourceFileSearchRegex, "") ?? "";
   const rawSearch = useValue(logviz.values.rawEventSearchRegex, "") ?? "";
-  const filteredSourceFiles =
-    useValue(logviz.values.filteredSourceFiles, emptySet) ?? emptySet;
+  const appThemeRaw = useValue(logviz.values.appTheme, "light") ?? "light";
+  const appTheme = appThemeRaw === "dark" ? "dark" : "light";
 
-  const filteredSourceFilesKey = useMemo(
-    () => Array.from(filteredSourceFiles).sort().join("|"),
-    [filteredSourceFiles]
-  );
+  const globalRef = (key: string): GlobalValueRef =>
+    new GlobalValueRef(logviz.core, key);
+  const fixed = (value: string): FixedValue =>
+    new FixedValue(new StringValue(value), value);
 
+  // Define 'Source files' table parameters, fetch predicate, data series query,
+  // and interactions.
   const sourceTableParams = useMemo(
     () =>
       new ValueMap(
@@ -183,37 +213,29 @@ export default function App(): JSX.Element {
       ),
     [logviz.values.sourceFileSearchRegex]
   );
-  const rawEntryParams = useMemo(
+  const sourceTableFetch = useMemo(
     () =>
-      new ValueMap(
-        new Map([["search_regex", logviz.values.rawEventSearchRegex]])
-      ),
-    [logviz.values.rawEventSearchRegex]
+      new And([
+        new Not(new Equals(globalRef("collection_name"), fixed(""))),
+        new Or([
+          new Changed([
+            globalRef("collection_name"),
+            globalRef("source_file_search_regex"),
+            globalRef("filtered_timerange_start"),
+            globalRef("filtered_timerange_end"),
+          ]),
+        ]),
+      ]),
+    [logviz.core]
   );
-
-  const sourceTable = useDataSeries(
+  const sourceTableDataSeries = useDataSeries(
     logviz.dataQuery,
     QUERY_SOURCE_FILES,
-    sourceTableParams
+    sourceTableParams,
+    sourceTableFetch
   );
-  const rawEntryTable = useDataSeries(
-    logviz.dataQuery,
-    QUERY_RAW_ENTRIES,
-    rawEntryParams
-  );
-
-  useEffect(() => {
-    sourceTable.triggerFetch();
-  }, [sourceSearch, sourceTable.triggerFetch]);
-
-  useEffect(() => {
-    rawEntryTable.triggerFetch();
-  }, [rawSearch, filteredSourceFilesKey, rawEntryTable.triggerFetch]);
-
   const sourceTableInteractions = useMemo(() => {
     const sourceFile = new LocalValue(SOURCE_FILE_KEY);
-    const globalRef = (key: string): GlobalValueRef =>
-      new GlobalValueRef(logviz.core, key);
     return new Interactions()
       .withAction(
         new Action("rows", "mouseover", [
@@ -239,16 +261,45 @@ export default function App(): JSX.Element {
         new Reaction(
           "rows",
           "highlight",
-          new Includes(globalRef("filtered_source_files"), sourceFile)
+          new Includes(globalRef("called_out_source_files"), sourceFile)
         )
       );
   }, [logviz.core]);
 
+  // Define 'Raw log entries' table parameters, fetch predicate, data series
+  // query, and interactions.
+  const rawEntryParams = useMemo(
+    () =>
+      new ValueMap(
+        new Map([["search_regex", logviz.values.rawEventSearchRegex]])
+      ),
+    [logviz.values.rawEventSearchRegex]
+  );
+  const rawEntryFetch = useMemo(
+    () =>
+      new And([
+        new Not(new Equals(globalRef("collection_name"), fixed(""))),
+        new Or([
+          new Changed([
+            globalRef("collection_name"),
+            globalRef("raw_event_search_regex"),
+            globalRef("filtered_source_files"),
+            globalRef("filtered_timerange_start"),
+            globalRef("filtered_timerange_end"),
+          ]),
+        ]),
+      ]),
+    [logviz.core]
+  );
+  const rawEntryTableDataSeries = useDataSeries(
+    logviz.dataQuery,
+    QUERY_RAW_ENTRIES,
+    rawEntryParams,
+    rawEntryFetch
+  );
   const rawEntryInteractions = useMemo(() => {
     const sourceFile = new LocalValue(SOURCE_FILE_KEY);
     const timestamp = new LocalValue(TIMESTAMP_KEY);
-    const globalRef = (key: string): GlobalValueRef =>
-      new GlobalValueRef(logviz.core, key);
     return new Interactions()
       .withAction(
         new Action("rows", "mouseover", [
@@ -269,19 +320,267 @@ export default function App(): JSX.Element {
       );
   }, [logviz.core]);
 
+  // Define 'Timeseries' graph parameters, fetch predicate, data series query,
+  // and interactions.
+  const timeseriesParams = useMemo(
+    () =>
+      new ValueMap(
+        new Map<string, Value>([
+          ["aggregate_by", new StringValue("level_name")],
+          ["bin_count", new IntegerValue(1000)],
+        ])
+      ),
+    []
+  );
+  const timeseriesFetch = useMemo(
+    () =>
+      new And([
+        new Not(new Equals(globalRef("collection_name"), fixed(""))),
+        new Or([
+          new Changed([
+            globalRef("collection_name"),
+            globalRef("filtered_source_files"),
+            globalRef("filtered_timerange_start"),
+            globalRef("filtered_timerange_end"),
+          ]),
+        ]),
+      ]),
+    [logviz.core]
+  );
+  const timeseriesDataSeries = useDataSeries(
+    logviz.dataQuery,
+    QUERY_TIMESERIES,
+    timeseriesParams,
+    timeseriesFetch
+  );
+  const timeseriesInteractions = useMemo(() => {
+    const zoomStart = new LocalValue("zoom_start");
+    const zoomEnd = new LocalValue("zoom_end");
+    return new Interactions()
+      .withAction(
+        new Action("chart", "brush", [
+          new SetAction(globalRef("filtered_timerange_start"), zoomStart),
+          new SetAction(globalRef("filtered_timerange_end"), zoomEnd),
+        ])
+      )
+      .withWatch(
+        new Watch(
+          "update_x_axis_marker",
+          new ValueMap(
+            new Map<string, Value>([
+              ["x_axis_marker_position", logviz.values.calledOutTimestamp],
+            ])
+          )
+        )
+      );
+  }, [logviz.core, logviz.values.calledOutTimestamp]);
+
+  // Send pan and zoom requests to the backend, which will update and return
+  // the filtered time range.
+  const panAndZoomFetch = useMemo(
+    () =>
+      new Or([
+        new Not(new Equals(globalRef("pan"), fixed(""))),
+        new Not(new Equals(globalRef("zoom"), fixed(""))),
+      ]),
+    [logviz.core]
+  );
+  const panAndZoomDataSeries = useDataSeries(
+    logviz.dataQuery,
+    QUERY_PAN_AND_ZOOM,
+    new ValueMap(),
+    panAndZoomFetch
+  );
+  const panAndZoomUpdate = useMemo(() => {
+    const zoomedStart = new LocalValue("start_timestamp");
+    const zoomedEnd = new LocalValue("end_timestamp");
+    return new Do([
+      new SetAction(globalRef("filtered_timerange_start"), zoomedStart),
+      new SetAction(globalRef("filtered_timerange_end"), zoomedEnd),
+    ]);
+  }, [logviz.core]);
+  useEffect(() => {
+    if (panAndZoomDataSeries.data) {
+      panAndZoomUpdate.update(panAndZoomDataSeries.data?.properties);
+    }
+  }, [panAndZoomDataSeries.data]);
+
+  // Handle panning and zooming by WASD keypress.
+  useEffect(() => {
+    const keypress = new Keypress(logviz.values.depressedKeyCodes);
+    const depressedKeyCodes = globalRef("depressed_key_codes");
+
+    const keypressUpdate = new Switch([
+      new Case(new Includes(depressedKeyCodes, fixed("KeyW")), [
+        new SetAction(globalRef("zoom"), fixed("in")),
+        new SetAction(globalRef("pan"), fixed("")),
+      ]),
+      new Case(new Includes(depressedKeyCodes, fixed("KeyS")), [
+        new SetAction(globalRef("zoom"), fixed("out")),
+        new SetAction(globalRef("pan"), fixed("")),
+      ]),
+      new Case(new Includes(depressedKeyCodes, fixed("KeyA")), [
+        new SetAction(globalRef("pan"), fixed("left")),
+        new SetAction(globalRef("zoom"), fixed("")),
+      ]),
+      new Case(new Includes(depressedKeyCodes, fixed("KeyD")), [
+        new SetAction(globalRef("pan"), fixed("right")),
+        new SetAction(globalRef("zoom"), fixed("")),
+      ]),
+      new Case(new True(), [
+        new SetAction(globalRef("pan"), fixed("")),
+        new SetAction(globalRef("zoom"), fixed("")),
+      ]),
+    ]);
+
+    const sub = logviz.values.depressedKeyCodes.subscribe(() => {
+      keypressUpdate.update();
+    });
+
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (shouldIgnoreKeypress(event)) {
+        return;
+      }
+      keypress.keyEvent(event);
+    };
+    const onKeyUp = (event: KeyboardEvent): void => {
+      if (shouldIgnoreKeypress(event)) {
+        return;
+      }
+      keypress.keyEvent(event);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      sub.unsubscribe();
+    };
+  }, [logviz.values.depressedKeyCodes]);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", appTheme);
+  }, [appTheme]);
+
   return (
     <AppCoreContext.Provider value={logviz.core}>
       <ErrorToast />
       <div className="logviz">
-        <header className="hero">
-          <div>
-            <p className="eyebrow">LogViz React</p>
-            <h1>LogViz Tables</h1>
-          </div>
-          <p className="subtitle">
-            React table views backed by the TraceViz data query engine. Timeline
-            charting will follow.
-          </p>
+        <header className="topbar">
+          <h1>LogViz React</h1>
+          <button
+            type="button"
+            className="theme-toggle"
+            onClick={() => {
+              logviz.values.appTheme.val =
+                appTheme === "dark" ? "light" : "dark";
+            }}
+            aria-label={
+              appTheme === "dark"
+                ? "Switch to light theme"
+                : "Switch to dark theme"
+            }
+            title={
+              appTheme === "dark"
+                ? "Switch to light theme"
+                : "Switch to dark theme"
+            }
+          >
+            {appTheme === "dark" ? (
+              <svg
+                viewBox="0 0 24 24"
+                width="14"
+                height="14"
+                aria-hidden="true"
+              >
+                <circle cx="12" cy="12" r="4.2" fill="currentColor" />
+                <line
+                  x1="12"
+                  y1="1.8"
+                  x2="12"
+                  y2="5"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
+                <line
+                  x1="12"
+                  y1="19"
+                  x2="12"
+                  y2="22.2"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
+                <line
+                  x1="1.8"
+                  y1="12"
+                  x2="5"
+                  y2="12"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
+                <line
+                  x1="19"
+                  y1="12"
+                  x2="22.2"
+                  y2="12"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
+                <line
+                  x1="4.2"
+                  y1="4.2"
+                  x2="6.5"
+                  y2="6.5"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
+                <line
+                  x1="17.5"
+                  y1="17.5"
+                  x2="19.8"
+                  y2="19.8"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
+                <line
+                  x1="17.5"
+                  y1="6.5"
+                  x2="19.8"
+                  y2="4.2"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
+                <line
+                  x1="4.2"
+                  y1="19.8"
+                  x2="6.5"
+                  y2="17.5"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
+              </svg>
+            ) : (
+              <svg
+                viewBox="0 0 24 24"
+                width="14"
+                height="14"
+                aria-hidden="true"
+              >
+                <path
+                  d="M16.4 3.2a8.8 8.8 0 1 0 4.4 15.8A9.5 9.5 0 1 1 16.4 3.2Z"
+                  fill="currentColor"
+                />
+              </svg>
+            )}
+          </button>
         </header>
 
         <section className="cards">
@@ -301,8 +600,8 @@ export default function App(): JSX.Element {
               />
             </div>
             <DataTable
-              data={sourceTable.data}
-              loading={sourceTable.loading}
+              data={sourceTableDataSeries.data}
+              loading={sourceTableDataSeries.loading}
               interactions={sourceTableInteractions}
               className="table-wrapper"
               withPagination
@@ -326,8 +625,8 @@ export default function App(): JSX.Element {
               />
             </div>
             <DataTable
-              data={rawEntryTable.data}
-              loading={rawEntryTable.loading}
+              data={rawEntryTableDataSeries.data}
+              loading={rawEntryTableDataSeries.loading}
               interactions={rawEntryInteractions}
               className="table-wrapper raw-events"
               withPagination
@@ -336,6 +635,18 @@ export default function App(): JSX.Element {
               fontSizePxOverride={12}
             />
           </article>
+        </section>
+
+        <section className="chart-band">
+          <div className="chart-header">
+            <h2>Log messages over time</h2>
+          </div>
+          <LineChart
+            data={timeseriesDataSeries.data}
+            loading={timeseriesDataSeries.loading}
+            interactions={timeseriesInteractions}
+            className="chart-wrapper"
+          />
         </section>
 
         <section className="state-band">

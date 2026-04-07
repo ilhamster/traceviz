@@ -83,7 +83,7 @@ type categoryer interface {
 	Category(category *category.Category, properties ...util.PropertyUpdate) *trace.Category[time.Time]
 }
 
-func handleTraceQuery(coll *Collection, qf *queryFilters, series util.DataBuilder, reqOpts map[string]*util.V) error {
+func handleTraceQuery(coll *Collection, appTheme string, qf *queryFilters, series util.DataBuilder, reqOpts map[string]*util.V) error {
 	root := newTimeSeriesTreeNode("")
 	// For each filtered-in Entry, add that entry to the proper bin in its proper
 	// seriesInfo, creating that seriesInfo if it doesn't exist.
@@ -106,10 +106,10 @@ func handleTraceQuery(coll *Collection, qf *queryFilters, series util.DataBuilde
 			startTimestamp, endTimestamp),
 		traceRenderSettings).With(
 		xAxisRenderSettings.Define(),
-		colorSpacesByLevelWeight[0].Define(),
-		colorSpacesByLevelWeight[1].Define(),
-		colorSpacesByLevelWeight[2].Define(),
-		colorSpacesByLevelWeight[3].Define(),
+		colorSpacesByThemeAndLevelWeight[appTheme][0].Define(),
+		colorSpacesByThemeAndLevelWeight[appTheme][1].Define(),
+		colorSpacesByThemeAndLevelWeight[appTheme][2].Define(),
+		colorSpacesByThemeAndLevelWeight[appTheme][3].Define(),
 	)
 	var visit func(parent categoryer, node *timeSeriesTreeNode)
 	visit = func(parent categoryer, node *timeSeriesTreeNode) {
@@ -121,7 +121,7 @@ func handleTraceQuery(coll *Collection, qf *queryFilters, series util.DataBuilde
 			childSpan.Subspan(
 				entry.Time,
 				entry.Time,
-				colorSpacesByLevelWeight[entry.Level.Weight].PrimaryColor(1),
+				colorSpacesByThemeAndLevelWeight[appTheme][entry.Level.Weight].PrimaryColor(1),
 			)
 		}
 		for _, childNode := range node.children {

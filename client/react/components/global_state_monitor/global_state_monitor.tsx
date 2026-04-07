@@ -1,19 +1,6 @@
 import type {Value} from '@traceviz/client-core';
-import {
-  Button,
-  Card,
-  Collapse,
-  Group,
-  MantineProvider,
-  ScrollArea,
-  Table,
-  Text,
-  Title,
-} from '@mantine/core';
 import {Fragment, useEffect, useMemo, useState} from 'react';
 import type {CSSProperties} from 'react';
-
-import '@mantine/core/styles.css';
 
 import {useAppCore} from '../../core';
 import {useValue, type ValueWithVal} from '../../core';
@@ -37,8 +24,18 @@ function GlobalValueCells({
   useValue(value as ValueWithVal<Value>);
   return (
     <>
-      <Table.Td>{name}</Table.Td>
-      <Table.Td style={dividerStyle}>{value.toString()}</Table.Td>
+      <td style={{padding: '4px 6px', borderBottom: '1px solid var(--panel-border)'}}>
+        {name}
+      </td>
+      <td
+        style={{
+          padding: '4px 6px',
+          borderBottom: '1px solid var(--panel-border)',
+          ...dividerStyle,
+        }}
+      >
+        {value.toString()}
+      </td>
     </>
   );
 }
@@ -115,89 +112,126 @@ export function GlobalStateMonitor({
     [columnWidth],
   );
   return (
-    <MantineProvider>
-      <Card withBorder radius="md" padding="md" shadow="sm">
-        <Group justify="space-between" align="center" mb="xs">
-          <Title order={4}>Global State</Title>
-          <Button
-            size="xs"
-            variant="subtle"
-            onClick={(): void => setOpened((current) => !current)}
+    <div
+      style={{
+        border: '1px solid var(--panel-border)',
+        background: 'var(--input-bg)',
+        padding: 8,
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: 6,
+        }}
+      >
+        <h3 style={{margin: 0, fontSize: 13, fontWeight: 600}}>Global State</h3>
+        <button
+          type="button"
+          onClick={(): void => setOpened((current) => !current)}
+          style={{
+            border: '1px solid var(--panel-border)',
+            background: 'var(--panel)',
+            color: 'var(--text)',
+            fontSize: 11,
+            padding: '2px 8px',
+            cursor: 'pointer',
+          }}
+        >
+          {opened ? 'Hide' : 'Show'}
+        </button>
+      </div>
+      <p style={{margin: '0 0 6px', fontSize: 11, color: 'var(--muted)'}}>
+        Keys update when globals are added; values update live.
+      </p>
+      {opened ? (
+        <div style={{maxHeight: 320, overflow: 'auto'}}>
+          <table
+            style={{
+              tableLayout: 'fixed',
+              width: '100%',
+              borderCollapse: 'collapse',
+              fontSize: 12,
+            }}
           >
-            {opened ? 'Hide' : 'Show'}
-          </Button>
-        </Group>
-        <Text size="sm" c="dimmed" mb="sm">
-          Keys update when globals are added; values update live.
-        </Text>
-        <Collapse in={opened}>
-          <ScrollArea.Autosize mah={320}>
-            <Table
-              striped
-              highlightOnHover
-              withTableBorder
-              withColumnBorders
-              style={{tableLayout: 'fixed', width: '100%'}}
-            >
-              <colgroup>
-                {Array.from({length: columnCount * 2}, (_, idx) => (
-                  <col key={`col-${idx}`} style={columnStyle} />
+            <colgroup>
+              {Array.from({length: columnCount * 2}, (_, idx) => (
+                <col key={`col-${idx}`} style={columnStyle} />
+              ))}
+            </colgroup>
+            <thead>
+              <tr>
+                {Array.from({length: columnCount}, (_, idx) => (
+                  <Fragment key={`pair-${idx}`}>
+                    <th
+                      style={{
+                        textAlign: 'left',
+                        padding: '4px 6px',
+                        borderBottom: '1px solid var(--panel-border)',
+                      }}
+                    >
+                      Key
+                    </th>
+                    <th
+                      style={{
+                        textAlign: 'left',
+                        padding: '4px 6px',
+                        borderBottom: '1px solid var(--panel-border)',
+                        ...(idx < columnCount - 1 ? dividerStyle : undefined),
+                      }}
+                    >
+                      Value
+                    </th>
+                  </Fragment>
                 ))}
-              </colgroup>
-              <Table.Thead>
-                <Table.Tr>
-                  {Array.from({length: columnCount}, (_, idx) => (
-                    <Fragment key={`pair-${idx}`}>
-                      <Table.Th>Key</Table.Th>
-                      <Table.Th
-                        style={idx < columnCount - 1 ? dividerStyle : undefined}
-                      >
-                        Value
-                      </Table.Th>
-                    </Fragment>
-                  ))}
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {Array.from({length: rowCount}, (_, rowIdx) => (
-                  <Table.Tr key={`row-${rowIdx}`}>
-                    {columnsEntries.map((column, colIdx) => {
-                      const entry = column[rowIdx];
-                      if (!entry) {
-                        return (
-                          <Fragment key={`empty-${colIdx}`}>
-                            <Table.Td />
-                            <Table.Td
-                              style={
-                                colIdx < columnCount - 1
-                                  ? dividerStyle
-                                  : undefined
-                              }
-                            />
-                          </Fragment>
-                        );
-                      }
-                      const [name, value] = entry;
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({length: rowCount}, (_, rowIdx) => (
+                <tr key={`row-${rowIdx}`}>
+                  {columnsEntries.map((column, colIdx) => {
+                    const entry = column[rowIdx];
+                    if (!entry) {
                       return (
-                        <GlobalValueCells
-                          key={`col-${name}`}
-                          name={name}
-                          value={value}
-                          dividerStyle={
-                            colIdx < columnCount - 1
-                              ? dividerStyle
-                              : undefined
-                          }
-                        />
+                        <Fragment key={`empty-${colIdx}`}>
+                          <td
+                            style={{
+                              padding: '4px 6px',
+                              borderBottom: '1px solid var(--panel-border)',
+                            }}
+                          />
+                          <td
+                            style={{
+                              padding: '4px 6px',
+                              borderBottom: '1px solid var(--panel-border)',
+                              ...(colIdx < columnCount - 1
+                                ? dividerStyle
+                                : undefined),
+                            }}
+                          />
+                        </Fragment>
                       );
-                    })}
-                  </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
-          </ScrollArea.Autosize>
-        </Collapse>
-      </Card>
-    </MantineProvider>
+                    }
+                    const [name, value] = entry;
+                    return (
+                      <GlobalValueCells
+                        key={`col-${name}`}
+                        name={name}
+                        value={value}
+                        dividerStyle={
+                          colIdx < columnCount - 1 ? dividerStyle : undefined
+                        }
+                      />
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+    </div>
   );
 }

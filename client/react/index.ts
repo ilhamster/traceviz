@@ -12,6 +12,7 @@ export {
   ErrorToast,
   DataTable,
   GlobalStateMonitor,
+  LineChart,
   HorizontalTrace,
   RectangularCategoryHierarchyYAxis,
   StandardContinuousXAxis,

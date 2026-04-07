@@ -26,7 +26,7 @@ import (
 	xychart "github.com/ilhamster/traceviz/server/go/xy_chart"
 )
 
-func handleTimeseriesQuery(coll *Collection, qf *queryFilters, series util.DataBuilder, reqOpts map[string]*util.V) error {
+func handleTimeseriesQuery(coll *Collection, appTheme string, qf *queryFilters, series util.DataBuilder, reqOpts map[string]*util.V) error {
 	// Handle query parameters.
 	var binCount int64
 	var aggregateBy string
@@ -69,7 +69,7 @@ func handleTimeseriesQuery(coll *Collection, qf *queryFilters, series util.DataB
 			si := &seriesInfo{
 				id:         entry.Level.Identifier(),
 				name:       entry.Level.String(),
-				colorSpace: colorSpacesByLevelWeight[entry.Level.Weight],
+				colorSpace: colorSpacesByThemeAndLevelWeight[appTheme][entry.Level.Weight],
 				points:     make([]float64, binCount),
 			}
 			seriesInfoByName[entry.Level.Identifier()] = si

@@ -93,6 +93,7 @@ func TestQueries(t *testing.T) {
 		req: &util.DataRequest{
 			GlobalFilters: map[string]*util.V{
 				collectionNameKey: util.StringValue("log1"),
+				appThemeKey:       util.StringsValue("light"),
 			},
 			SeriesRequests: []*util.DataSeriesRequest{
 				{
@@ -129,6 +130,7 @@ func TestQueries(t *testing.T) {
 		req: &util.DataRequest{
 			GlobalFilters: map[string]*util.V{
 				collectionNameKey: util.StringValue("both"),
+				appThemeKey:       util.StringsValue("light"),
 			},
 			SeriesRequests: []*util.DataSeriesRequest{
 				{
@@ -179,6 +181,7 @@ func TestQueries(t *testing.T) {
 				startTimestampKey:      util.TimestampValue(ts(time.Minute * 10)),
 				endTimestampKey:        util.TimestampValue(ts(time.Minute * 30)),
 				filteredSourceFilesKey: util.StringsValue("a.cc"),
+				appThemeKey:            util.StringsValue("light"),
 			},
 			SeriesRequests: []*util.DataSeriesRequest{
 				{
@@ -225,6 +228,7 @@ func TestQueries(t *testing.T) {
 		req: &util.DataRequest{
 			GlobalFilters: map[string]*util.V{
 				collectionNameKey: util.StringValue("log1"),
+				appThemeKey:       util.StringsValue("light"),
 			},
 			SeriesRequests: []*util.DataSeriesRequest{
 				{
@@ -235,10 +239,10 @@ func TestQueries(t *testing.T) {
 		},
 		wantSeries: func(db util.DataBuilder) {
 			t := table.New(db, renderSettings, eventCol).With(
-				colorSpacesByLevelWeight[0].Define(),
-				colorSpacesByLevelWeight[1].Define(),
-				colorSpacesByLevelWeight[2].Define(),
-				colorSpacesByLevelWeight[3].Define(),
+				colorSpacesByThemeAndLevelWeight["light"][0].Define(),
+				colorSpacesByThemeAndLevelWeight["light"][1].Define(),
+				colorSpacesByThemeAndLevelWeight["light"][2].Define(),
+				colorSpacesByThemeAndLevelWeight["light"][3].Define(),
 			)
 			t.Row(
 				table.FormattedCell(eventCol, eventFormatStr,
@@ -247,7 +251,7 @@ func TestQueries(t *testing.T) {
 					util.StringProperty(sourceLocNameKey, "a.cc:10"),
 					util.StringsProperty(messageKey, "Hello"),
 				)).With(
-				colorSpacesByLevelWeight[3].PrimaryColor(1),
+				colorSpacesByThemeAndLevelWeight["light"][3].PrimaryColor(1),
 				color.Secondary(highlightColor),
 				util.StringProperty(sourceFileKey, "a.cc"),
 				util.TimestampProperty(timestampKey, ts(0)),
@@ -260,7 +264,7 @@ func TestQueries(t *testing.T) {
 					util.StringsProperty(messageKey, "We have a problem..."),
 				)).With(
 				color.Secondary(highlightColor),
-				colorSpacesByLevelWeight[2].PrimaryColor(1),
+				colorSpacesByThemeAndLevelWeight["light"][2].PrimaryColor(1),
 				util.StringProperty(sourceFileKey, "a.cc"),
 				util.TimestampProperty(timestampKey, ts(10*time.Minute)),
 			)
@@ -271,7 +275,7 @@ func TestQueries(t *testing.T) {
 					util.StringProperty(sourceLocNameKey, "a.cc:30"),
 					util.StringsProperty(messageKey, "Still here"),
 				)).With(
-				colorSpacesByLevelWeight[3].PrimaryColor(1),
+				colorSpacesByThemeAndLevelWeight["light"][3].PrimaryColor(1),
 				color.Secondary(highlightColor),
 				util.StringProperty(sourceFileKey, "a.cc"),
 				util.TimestampProperty(timestampKey, ts(20*time.Minute)),
@@ -283,7 +287,7 @@ func TestQueries(t *testing.T) {
 					util.StringProperty(sourceLocNameKey, "b.cc:10"),
 					util.StringsProperty(messageKey, "Trouble!"),
 				)).With(
-				colorSpacesByLevelWeight[1].PrimaryColor(1),
+				colorSpacesByThemeAndLevelWeight["light"][1].PrimaryColor(1),
 				color.Secondary(highlightColor),
 				util.StringProperty(sourceFileKey, "b.cc"),
 				util.TimestampProperty(timestampKey, ts(30*time.Minute)),
@@ -294,6 +298,7 @@ func TestQueries(t *testing.T) {
 		req: &util.DataRequest{
 			GlobalFilters: map[string]*util.V{
 				collectionNameKey: util.StringValue("both"),
+				appThemeKey:       util.StringsValue("light"),
 			},
 			SeriesRequests: []*util.DataSeriesRequest{
 				{
@@ -322,17 +327,17 @@ func TestQueries(t *testing.T) {
 				continuousaxis.NewDoubleAxis(
 					category.New("y_axis", "Messages per minute", "Log messages per minute"),
 					0, 2.0/(float64(binWidth)/float64(time.Minute))),
-				colorSpacesByLevelWeight[0].Define(),
-				colorSpacesByLevelWeight[1].Define(),
-				colorSpacesByLevelWeight[2].Define(),
-				colorSpacesByLevelWeight[3].Define(),
+				colorSpacesByThemeAndLevelWeight["light"][0].Define(),
+				colorSpacesByThemeAndLevelWeight["light"][1].Define(),
+				colorSpacesByThemeAndLevelWeight["light"][2].Define(),
+				colorSpacesByThemeAndLevelWeight["light"][3].Define(),
 				xAxisRenderSettings.Define(),
 				yAxisRenderSettings.Define(),
 			)
 			// Fatal datapoints
 			s := chart.AddSeries(
 				category.New("0", "0", "0"),
-				colorSpacesByLevelWeight[0].PrimaryColor(1),
+				colorSpacesByThemeAndLevelWeight["light"][0].PrimaryColor(1),
 			)
 			s.WithPoint(
 				ts(firstBinStart),
@@ -350,7 +355,7 @@ func TestQueries(t *testing.T) {
 			// Error datapoints
 			s = chart.AddSeries(
 				category.New("1", "1", "1"),
-				colorSpacesByLevelWeight[1].PrimaryColor(1),
+				colorSpacesByThemeAndLevelWeight["light"][1].PrimaryColor(1),
 			)
 			s.WithPoint(
 				ts(firstBinStart),
@@ -368,7 +373,7 @@ func TestQueries(t *testing.T) {
 			// Warning datapoints
 			s = chart.AddSeries(
 				category.New("2", "2", "2"),
-				colorSpacesByLevelWeight[2].PrimaryColor(1),
+				colorSpacesByThemeAndLevelWeight["light"][2].PrimaryColor(1),
 			)
 			s.WithPoint(
 				ts(firstBinStart),
@@ -386,7 +391,7 @@ func TestQueries(t *testing.T) {
 			// Info datapoints
 			s = chart.AddSeries(
 				category.New("3", "3", "3"),
-				colorSpacesByLevelWeight[3].PrimaryColor(1),
+				colorSpacesByThemeAndLevelWeight["light"][3].PrimaryColor(1),
 			)
 			s.WithPoint(
 				ts(firstBinStart),
@@ -426,6 +431,7 @@ func TestQueries(t *testing.T) {
 				startTimestampKey: util.TimestampValue(ts(time.Minute * 0)),
 				endTimestampKey:   util.TimestampValue(ts(time.Minute * 30)),
 				zoomKey:           util.StringValue("in"),
+				appThemeKey:       util.StringsValue("light"),
 			},
 			SeriesRequests: []*util.DataSeriesRequest{
 				&util.DataSeriesRequest{
@@ -449,6 +455,7 @@ func TestQueries(t *testing.T) {
 				startTimestampKey: util.TimestampValue(ts(time.Minute * 12)),
 				endTimestampKey:   util.TimestampValue(ts(time.Minute * 18)),
 				zoomKey:           util.StringValue("out"),
+				appThemeKey:       util.StringsValue("light"),
 			},
 			SeriesRequests: []*util.DataSeriesRequest{
 				&util.DataSeriesRequest{
@@ -472,6 +479,7 @@ func TestQueries(t *testing.T) {
 				startTimestampKey: util.TimestampValue(ts(time.Minute * 12)),
 				endTimestampKey:   util.TimestampValue(ts(time.Minute * 18)),
 				panKey:            util.StringValue("left"),
+				appThemeKey:       util.StringsValue("light"),
 			},
 			SeriesRequests: []*util.DataSeriesRequest{
 				&util.DataSeriesRequest{
@@ -495,6 +503,7 @@ func TestQueries(t *testing.T) {
 				startTimestampKey: util.TimestampValue(ts(time.Minute * 12)),
 				endTimestampKey:   util.TimestampValue(ts(time.Minute * 18)),
 				panKey:            util.StringValue("right"),
+				appThemeKey:       util.StringsValue("light"),
 			},
 			SeriesRequests: []*util.DataSeriesRequest{
 				&util.DataSeriesRequest{

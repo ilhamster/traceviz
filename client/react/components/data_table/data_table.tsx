@@ -11,7 +11,6 @@ import {
   StringValue,
   type ResponseNode,
 } from "@traceviz/client-core";
-import { Loader, Pagination, ScrollArea, Table, Text } from "@mantine/core";
 import * as d3 from "d3";
 import { Subject, takeUntil } from "rxjs";
 import { useEffect, useReducer, useRef, useState } from "react";
@@ -170,18 +169,13 @@ export function DataTable({
       1,
       Math.floor(availableHeight / Math.max(measuredRowHeight, 1)),
     );
-    console.log("[DataTable] sizing", {
-      height,
-      footerHeight,
-      headerHeight,
-      measuredRowHeight,
-      paddingTop,
-      paddingBottom,
-      availableHeight,
-      rowsPerPage,
-    });
-    setPageSize(rowsPerPage);
-    setPageIndex(0);
+    setPageSize((prevPageSize) =>
+      prevPageSize === rowsPerPage ? prevPageSize : rowsPerPage,
+    );
+    const nextPageCount = Math.max(1, Math.ceil(table.rowCount / rowsPerPage));
+    setPageIndex((prevPageIndex) =>
+      Math.min(prevPageIndex, nextPageCount - 1),
+    );
   };
 
   // Initialize 'table', 'column', and 'rows' when new data is available.
@@ -200,6 +194,7 @@ export function DataTable({
       setTable(nextTable);
       setColumns(nextTable.columns());
       setPageIndex(0);
+      setPageSize(0);
       setRows(nextTable.rowSlice(0, nextTable.rowCount));
     } catch (err: unknown) {
       appCore.err(err);
@@ -436,118 +431,155 @@ export function DataTable({
 
   const cellLabel = (cell: Cell): string => getLabel(cell.properties);
 
+  const tableElement = (
+    <table
+      style={{
+        fontSize: `${fontSizePx}px`,
+        width: "100%",
+        borderCollapse: "collapse",
+        tableLayout: "fixed",
+      }}
+    >
+      <thead>
+        <tr ref={headerRef} style={{ height: rowHeightPx }}>
+          {columns.map((column) => (
+            <th
+              key={column.category.id}
+              title={column.category.description}
+              onClick={() => handleSort(column)}
+              style={{
+                textAlign: "left",
+                fontSize: "75%",
+                cursor: "pointer",
+                padding: "3px 6px",
+                border: "1px solid var(--panel-border)",
+              }}
+            >
+              {column.category.displayName}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row, idx) => (
+          <tr
+            key={idx}
+            ref={idx === 0 ? sampleRowRef : undefined}
+            style={{ height: rowHeightPx, ...rowStyle(row) }}
+            onMouseOver={() => rowMouseover(row)}
+            onMouseOut={() => rowMouseout(row)}
+            onClick={(ev) => rowClick(row, ev.shiftKey)}
+          >
+            {row.cells(columns).map((cell, cellIdx) => (
+              <td
+                key={`${idx}-${cellIdx}`}
+                title={cellLabel(cell) || cell.value.toString()}
+                style={{ border: "1px solid var(--panel-border)" }}
+              >
+                <div style={cellStyle(cell, row)}>{cell.value.toString()}</div>
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+
   return (
     <div ref={componentRef} className={className}>
-      {loading ? <Loader size="sm" /> : null}
+      {loading ? (
+        <div style={{ fontSize: 11, color: "var(--muted)" }}>Loading...</div>
+      ) : null}
       {table === null ? (
-        <Text size="sm" c="dimmed">
-          No data.
-        </Text>
+        <div style={{ fontSize: 11, color: "var(--muted)" }}>No data.</div>
       ) : scrollable ? (
-        <ScrollArea className="table-scroll">
-          <Table
-            striped
-            highlightOnHover
-            withTableBorder
-            withColumnBorders
-            style={{ fontSize: `${fontSizePx}px` }}
-          >
-            <Table.Thead>
-            <Table.Tr ref={headerRef} style={{ height: rowHeightPx }}>
-              {columns.map((column) => (
-                  <Table.Th
-                    key={column.category.id}
-                    title={column.category.description}
-                    onClick={() => handleSort(column)}
-                    style={{ textAlign: "left", fontSize: "75%" }}
-                  >
-                    {column.category.displayName}
-                  </Table.Th>
-                ))}
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {rows.map((row, idx) => (
-                <Table.Tr
-                  key={idx}
-                  ref={idx === 0 ? sampleRowRef : undefined}
-                  style={{ height: rowHeightPx, ...rowStyle(row) }}
-                  onMouseOver={() => rowMouseover(row)}
-                  onMouseOut={() => rowMouseout(row)}
-                  onClick={(ev) => rowClick(row, ev.shiftKey)}
-                >
-                  {row.cells(columns).map((cell, cellIdx) => (
-                    <Table.Td
-                      key={`${idx}-${cellIdx}`}
-                      title={cellLabel(cell) || cell.value.toString()}
-                    >
-                      <div style={cellStyle(cell, row)}>
-                        {cell.value.toString()}
-                      </div>
-                    </Table.Td>
-                  ))}
-                </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
-        </ScrollArea>
-      ) : (
-        <div className="table-content">
-          <Table
-            striped
-            highlightOnHover
-            withTableBorder
-            withColumnBorders
-            style={{ fontSize: `${fontSizePx}px` }}
-          >
-            <Table.Thead>
-            <Table.Tr ref={headerRef} style={{ height: rowHeightPx }}>
-              {columns.map((column) => (
-                  <Table.Th
-                    key={column.category.id}
-                    title={column.category.description}
-                    onClick={() => handleSort(column)}
-                    style={{ textAlign: "left", fontSize: "75%" }}
-                  >
-                    {column.category.displayName}
-                  </Table.Th>
-                ))}
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-            {rows.map((row, idx) => (
-              <Table.Tr
-                key={idx}
-                ref={idx === 0 ? sampleRowRef : undefined}
-                style={{ height: rowHeightPx, ...rowStyle(row) }}
-                onMouseOver={() => rowMouseover(row)}
-                onMouseOut={() => rowMouseout(row)}
-                onClick={(ev) => rowClick(row, ev.shiftKey)}
-              >
-                  {row.cells(columns).map((cell, cellIdx) => (
-                    <Table.Td
-                      key={`${idx}-${cellIdx}`}
-                      title={cellLabel(cell) || cell.value.toString()}
-                    >
-                      <div style={cellStyle(cell, row)}>
-                        {cell.value.toString()}
-                      </div>
-                    </Table.Td>
-                  ))}
-                </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
+        <div className="table-scroll" style={{ overflow: "auto", minHeight: 0 }}>
+          {tableElement}
         </div>
+      ) : (
+        <div className="table-content">{tableElement}</div>
       )}
       {withPagination ? (
         <div ref={paginationRef} className="table-pagination">
-          <Pagination
-            value={pageIndex + 1}
-            onChange={(page) => setPageIndex(page - 1)}
-            total={pageCount}
-            mt="sm"
-          />
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              fontSize: 11,
+              color: "var(--muted)",
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setPageIndex(0)}
+              disabled={pageIndex <= 0}
+              style={{
+                border: "1px solid var(--panel-border)",
+                background: "var(--panel)",
+                color: "var(--text)",
+                fontSize: 11,
+                padding: "2px 8px",
+                cursor: pageIndex <= 0 ? "default" : "pointer",
+                opacity: pageIndex <= 0 ? 0.5 : 1,
+              }}
+            >
+              First
+            </button>
+            <button
+              type="button"
+              onClick={() => setPageIndex((prev) => Math.max(0, prev - 1))}
+              disabled={pageIndex <= 0}
+              style={{
+                border: "1px solid var(--panel-border)",
+                background: "var(--panel)",
+                color: "var(--text)",
+                fontSize: 11,
+                padding: "2px 8px",
+                cursor: pageIndex <= 0 ? "default" : "pointer",
+                opacity: pageIndex <= 0 ? 0.5 : 1,
+              }}
+            >
+              Prev
+            </button>
+            <span>{`Page ${pageIndex + 1} / ${Math.max(1, pageCount)}`}</span>
+            <button
+              type="button"
+              onClick={() =>
+                setPageIndex((prev) =>
+                  Math.min(Math.max(0, pageCount - 1), prev + 1),
+                )
+              }
+              disabled={pageIndex >= pageCount - 1}
+              style={{
+                border: "1px solid var(--panel-border)",
+                background: "var(--panel)",
+                color: "var(--text)",
+                fontSize: 11,
+                padding: "2px 8px",
+                cursor: pageIndex >= pageCount - 1 ? "default" : "pointer",
+                opacity: pageIndex >= pageCount - 1 ? 0.5 : 1,
+              }}
+            >
+              Next
+            </button>
+            <button
+              type="button"
+              onClick={() => setPageIndex(Math.max(0, pageCount - 1))}
+              disabled={pageIndex >= pageCount - 1}
+              style={{
+                border: "1px solid var(--panel-border)",
+                background: "var(--panel)",
+                color: "var(--text)",
+                fontSize: 11,
+                padding: "2px 8px",
+                cursor: pageIndex >= pageCount - 1 ? "default" : "pointer",
+                opacity: pageIndex >= pageCount - 1 ? 0.5 : 1,
+              }}
+            >
+              Last
+            </button>
+          </div>
         </div>
       ) : null}
     </div>

@@ -27,6 +27,7 @@ export * from './global_state/global_state.js';
 export * from './global_state/global_state_interface.js';
 export * from './hash_encoding/hash_encoding.js';
 export * from './interactions/interactions.js';
+export * from './keypress/keypress.js';
 export * from './label/label.js';
 export * from './magnitude/magnitude.js';
 export * from './protocol/json_request.js';

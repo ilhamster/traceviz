@@ -39,6 +39,8 @@
 
     "run:logviz": "cd logviz && go run server/server.go --angular_root ./angular-client/dist/angular-client --react_root ./react-client/dist",
 
+    "dev:logviz": "pnpm run ib:logviz && cd logviz && go run server/server.go --angular_root ./angular-client/dist/angular-client  --react_root ./react-client/dist --client_watch_cwd ..  --client_watch_cmd \"pnpm --filter ./logviz/react-client exec vite build --watch\"",
+
     "demo": "pnpm run ibt && pnpm run ib:logviz && pnpm run run:logviz"
   },
 
