@@ -1,0 +1,17 @@
+# gazelle:prefix github.com/ilhamster/traceviz/causal_tracing
+# gazelle:exclude react-client
+
+load("@gazelle//:def.bzl", "gazelle")
+
+gazelle(name = "gazelle")
+
+test_suite(
+    name = "go_tests",
+    tests = [
+        "//causal_tracing/concurrency:concurrency_test",
+        "//causal_tracing/data_source:data_source_test",
+        "//causal_tracing/extendedotel:extendedotel_test",
+        "//causal_tracing/rendertrace:rendertrace_test",
+    ],
+)
+

@@ -167,7 +167,11 @@ export class AppCore {
       console.log(error);
       this.configurationErrors.next(error);
     } else {
-      throw error;
+      const normalized = new ConfigurationError(String(error))
+        .from(SOURCE)
+        .at(Severity.ERROR);
+      console.error(error);
+      this.configurationErrors.next(normalized);
     }
   }
 }

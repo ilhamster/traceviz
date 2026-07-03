@@ -1,0 +1,234 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/schemas/compose-post-ct-logs.schema.json",
+  "title": "Compose Post Trace Logs",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["data", "total", "limit", "offset", "errors"],
+  "properties": {
+    "data": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/trace" }
+    },
+    "total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "offset": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "errors": {
+      "type": ["array", "null"],
+      "items": { "$ref": "#/$defs/error" }
+    }
+  },
+  "$defs": {
+    "traceId": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{1,32}$"
+    },
+    "spanId": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{1,16}$"
+    },
+    "processId": {
+      "type": "string",
+      "pattern": "^p[0-9]+$"
+    },
+    "trace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["traceID", "spans", "processes", "warnings"],
+      "properties": {
+        "traceID": { "$ref": "#/$defs/traceId" },
+        "spans": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/span" }
+        },
+        "processes": {
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/processId" },
+          "additionalProperties": { "$ref": "#/$defs/process" }
+        },
+        "warnings": {
+          "type": ["array", "null"],
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "span": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "traceID",
+        "spanID",
+        "flags",
+        "operationName",
+        "references",
+        "startTime",
+        "duration",
+        "tags",
+        "logs",
+        "processID",
+        "warnings"
+      ],
+      "properties": {
+        "traceID": { "$ref": "#/$defs/traceId" },
+        "spanID": { "$ref": "#/$defs/spanId" },
+        "flags": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "operationName": {
+          "type": "string"
+        },
+        "references": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/reference" }
+        },
+        "startTime": {
+          "type": "integer",
+          "description": "Start time in microseconds since epoch."
+        },
+        "duration": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Span duration in microseconds."
+        },
+        "tags": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/keyValue" }
+        },
+        "logs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/log" }
+        },
+        "processID": { "$ref": "#/$defs/processId" },
+        "warnings": {
+          "type": ["array", "null"],
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["refType", "traceID", "spanID"],
+      "properties": {
+        "refType": {
+          "type": "string",
+          "enum": ["CHILD_OF", "FOLLOWS_FROM"]
+        },
+        "traceID": { "$ref": "#/$defs/traceId" },
+        "spanID": { "$ref": "#/$defs/spanId" }
+      }
+    },
+    "log": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp", "fields"],
+      "properties": {
+        "timestamp": {
+          "type": "integer",
+          "description": "Log timestamp in microseconds since epoch."
+        },
+        "fields": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/logField" }
+        }
+      }
+    },
+    "process": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["serviceName", "tags"],
+      "properties": {
+        "serviceName": {
+          "type": "string"
+        },
+        "tags": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/stringKeyValue" }
+        }
+      }
+    },
+    "keyValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "type", "value"],
+      "properties": {
+        "key": { "type": "string" },
+        "type": { "type": "string" },
+        "value": {}
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "type": { "const": "string" },
+            "value": { "type": "string" }
+          }
+        },
+        {
+          "properties": {
+            "type": { "const": "int64" },
+            "value": { "type": "integer" }
+          }
+        },
+        {
+          "properties": {
+            "type": { "const": "float64" },
+            "value": { "type": "number" }
+          }
+        }
+      ]
+    },
+    "logField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "type", "value"],
+      "properties": {
+        "key": { "type": "string" },
+        "type": { "type": "string" },
+        "value": {}
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "type": { "const": "string" },
+            "value": { "type": "string" }
+          }
+        },
+        {
+          "properties": {
+            "type": { "const": "int64" },
+            "value": { "type": "integer" }
+          }
+        }
+      ]
+    },
+    "stringKeyValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "type", "value"],
+      "properties": {
+        "key": { "type": "string" },
+        "type": { "const": "string" },
+        "value": { "type": "string" }
+      }
+    },
+    "error": {
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "additionalProperties": true
+        }
+      ]
+    }
+  }
+}

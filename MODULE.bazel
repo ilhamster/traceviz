@@ -28,3 +28,10 @@ use_repo(
     "org_golang_x_text",
     "org_golang_x_tools",
 )
+
+local_repository = use_repo_rule("@bazel_tools//tools/build_defs/repo:local.bzl", "local_repository")
+
+local_repository(
+    name = "tracey",
+    path = "../tracey",
+)

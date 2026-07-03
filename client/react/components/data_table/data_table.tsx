@@ -345,37 +345,53 @@ export function DataTable({
     table && pageSize > 0 ? Math.ceil(table.rowCount / pageSize) : 1;
 
   const handleSort = (column: Header): void => {
-    let nextDirection = SORT_ASC;
-    if (sort.active === column.category.id) {
-      nextDirection =
-        sort.direction === SORT_ASC
-          ? SORT_DESC
-          : sort.direction === SORT_DESC
-            ? SORT_NONE
-            : SORT_ASC;
+    try {
+      let nextDirection = SORT_ASC;
+      if (sort.active === column.category.id) {
+        nextDirection =
+          sort.direction === SORT_ASC
+            ? SORT_DESC
+            : sort.direction === SORT_DESC
+              ? SORT_NONE
+              : SORT_ASC;
+      }
+      const properties = column.properties.with([
+        SORT_DIRECTION,
+        new StringValue(nextDirection),
+      ]);
+      interactions?.update(COLUMN, CLICK, properties);
+      setSort({ active: column.category.id, direction: nextDirection });
+    } catch (err: unknown) {
+      appCore.err(err);
     }
-    const properties = column.properties.with([
-      SORT_DIRECTION,
-      new StringValue(nextDirection),
-    ]);
-    interactions?.update(COLUMN, CLICK, properties);
-    setSort({ active: column.category.id, direction: nextDirection });
   };
 
   const rowClick = (row: Row, shiftDepressed: boolean): void => {
-    if (!shiftDepressed) {
-      interactions?.update(ROW, CLICK, row.properties);
-    } else {
-      interactions?.update(ROW, SHIFTCLICK, row.properties);
+    try {
+      if (!shiftDepressed) {
+        interactions?.update(ROW, CLICK, row.properties);
+      } else {
+        interactions?.update(ROW, SHIFTCLICK, row.properties);
+      }
+    } catch (err: unknown) {
+      appCore.err(err);
     }
   };
 
   const rowMouseover = (row: Row): void => {
-    interactions?.update(ROW, MOUSEOVER, row.properties);
+    try {
+      interactions?.update(ROW, MOUSEOVER, row.properties);
+    } catch (err: unknown) {
+      appCore.err(err);
+    }
   };
 
   const rowMouseout = (row: Row): void => {
-    interactions?.update(ROW, MOUSEOUT, row.properties);
+    try {
+      interactions?.update(ROW, MOUSEOUT, row.properties);
+    } catch (err: unknown) {
+      appCore.err(err);
+    }
   };
 
   const rowStyle = (row: Row): React.CSSProperties => {

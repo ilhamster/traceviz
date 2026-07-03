@@ -1,0 +1,28 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "rendertrace",
+    srcs = [
+        "critical_path.go",
+        "model.go",
+    ],
+    importpath = "github.com/ilhamster/traceviz/causal_tracing/rendertrace",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//server/go/category",
+        "//server/go/category_axis",
+        "//server/go/continuous_axis",
+        "//server/go/trace",
+        "//server/go/util",
+        "@tracey//critical_path",
+        "@tracey//trace",
+        "@tracey//trace/parser",
+    ],
+)
+
+go_test(
+    name = "rendertrace_test",
+    srcs = ["model_test.go"],
+    embed = [":rendertrace"],
+    deps = ["@tracey//test_trace"],
+)

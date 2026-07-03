@@ -1,0 +1,40 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "extendedotel",
+    srcs = [
+        "causality.go",
+        "concurrency.go",
+        "convert.go",
+        "namer.go",
+        "raw.go",
+        "render.go",
+        "transform.go",
+        "types.go",
+    ],
+    importpath = "github.com/ilhamster/traceviz/causal_tracing/extendedotel",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//causal_tracing/concurrency",
+        "//causal_tracing/rendertrace",
+        "//server/go/category",
+        "//server/go/color",
+        "//server/go/label",
+        "//server/go/trace",
+        "//server/go/trace_edge",
+        "//server/go/util",
+        "@tracey//critical_path",
+        "@tracey//smart_dependencies",
+        "@tracey//trace",
+        "@tracey//trace/parser",
+        "@tracey//transform/parser",
+    ],
+)
+
+go_test(
+    name = "extendedotel_test",
+    srcs = ["convert_test.go"],
+    data = ["//causal_tracing/testdata:compose_post_ct_logs"],
+    embed = [":extendedotel"],
+    deps = ["@tracey//trace"],
+)

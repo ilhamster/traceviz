@@ -7,13 +7,14 @@
     "client/react",
     "client/angular",
     "client/angular/projects/traceviz-angular",
+    "causal_tracing/react-client",
     "logviz/angular-client",
     "logviz/react-client"
   ],
 
   "scripts": {
-    "clean": "rimraf client/angular/dist client/core/dist client/angular/.angular client/core/.angular client/core/.tsbuildinfo logviz/angular-client/dist logviz/angular-client/.angular logviz/react-client/dist logviz/react-client/.vite",
-    "deep-clean": "rimraf node_modules pnpm-lock.yaml client/angular/node_modules client/core/node_modules logviz/angular-client/node_modules logviz/react-client/node_modules",
+    "clean": "rimraf client/angular/dist client/core/dist client/angular/.angular client/core/.angular client/core/.tsbuildinfo causal_tracing/react-client/dist causal_tracing/react-client/.vite logviz/angular-client/dist logviz/angular-client/.angular logviz/react-client/dist logviz/react-client/.vite",
+    "deep-clean": "rimraf node_modules pnpm-lock.yaml client/angular/node_modules client/core/node_modules causal_tracing/react-client/node_modules logviz/angular-client/node_modules logviz/react-client/node_modules",
     "reset": "pnpm install && pnpm run clean && pnpm run deep-clean",
     "bazel-reset": "rimraf .aspect && bazel clean --expunge",
     "reset-all": "pnpm run bazel-reset && pnpm run reset",
@@ -21,16 +22,19 @@
     "install:all": "pnpm install",
     "install:core": "pnpm --filter ./client/core install",
     "install:angular": "pnpm --filter ./client/angular install",
+    "install:causal-tracing": "pnpm --filter ./causal_tracing/react-client install",
     "install:logviz": "pnpm --filter ./logviz/angular-client install && pnpm --filter ./logviz/react-client install",
 
     "build": "pnpm run build:core && pnpm run build:angular",
     "build:core": "pnpm --filter ./client/core run build",
     "build:angular": "pnpm --filter ./client/angular exec ng build",
+    "build:causal-tracing": "bazel build //causal_tracing/server:server && pnpm --filter ./causal_tracing/react-client run build",
     "build:logviz": "pnpm --filter ./logviz/angular-client run build && pnpm --filter ./logviz/react-client run build",
 
     "test": "pnpm run test:core && pnpm run test:angular",
     "test:core": "pnpm --filter ./client/core run test",
     "test:angular": "pnpm --filter ./client/angular run test:headless",
+    "test:causal-tracing": "bazel test //causal_tracing/...",
 
     "bt": "pnpm run build && pnpm run test",
     "ibt": "pnpm run install:all && pnpm run bt",
@@ -38,8 +42,10 @@
     "ib:logviz": "pnpm run install:logviz && pnpm run build:logviz",
 
     "run:logviz": "cd logviz && go run server/server.go --angular_root ./angular-client/dist/angular-client --react_root ./react-client/dist",
+    "run:causal-tracing": "bazel run //causal_tracing/server:server -- --react_root \"$PWD/causal_tracing/react-client/dist\" --trace_root \"$PWD/causal_tracing\"",
 
     "dev:logviz": "pnpm run ib:logviz && cd logviz && go run server/server.go --angular_root ./angular-client/dist/angular-client  --react_root ./react-client/dist --client_watch_cwd ..  --client_watch_cmd \"pnpm --filter ./logviz/react-client exec vite build --watch\"",
+    "dev:causal-tracing": "pnpm run build:causal-tracing && bazel run //causal_tracing/server:server -- --react_root \"$PWD/causal_tracing/react-client/dist\" --trace_root \"$PWD/causal_tracing\" --client_watch_cwd \"$PWD\" --client_watch_cmd \"pnpm --filter ./causal_tracing/react-client exec vite build --watch\"",
 
     "demo": "pnpm run ibt && pnpm run ib:logviz && pnpm run run:logviz"
   },

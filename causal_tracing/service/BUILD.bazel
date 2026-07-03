@@ -1,0 +1,14 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "service",
+    srcs = ["service.go"],
+    importpath = "github.com/ilhamster/traceviz/causal_tracing/service",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//causal_tracing/data_source",
+        "//server/go/handlers",
+        "//server/go/query_dispatcher",
+    ],
+)
+

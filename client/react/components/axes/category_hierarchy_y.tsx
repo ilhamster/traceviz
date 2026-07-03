@@ -9,29 +9,45 @@ import {
 } from "@traceviz/client-core";
 import * as d3 from "d3";
 import {useAppCore} from "../../core/index.ts";
+import {
+  CATEGORY_CLICK_ACTION,
+  CATEGORY_HEADERS_TARGET,
+  CATEGORY_MOUSEOUT_ACTION,
+  CATEGORY_MOUSEOVER_ACTION,
+} from "../trace/category_callout.ts";
 
 const CATEGORY_NODE_CLASS = "traceviz-category-node";
+const CATEGORY_EXPANSION_STATE_KEY = "category_expansion_state";
+const CATEGORY_NAME_KEY = "category_name";
+const CATEGORY_STATE_COLLAPSED = "collapsed";
+const CATEGORY_STATE_EXPANDED = "expanded";
 
-enum Targets {
-  CATEGORY_HEADERS = "category_headers",
+function categoryTooltip(rc: RenderedCategory): string {
+  if (rc.properties.has(CATEGORY_NAME_KEY)) {
+    return rc.properties.expectString(CATEGORY_NAME_KEY);
+  }
+  const label = getLabel(rc.properties);
+  return label || rc.category.displayName;
 }
 
-enum Actions {
-  CLICK = "click",
-  MOUSEOVER = "mouseover",
-  MOUSEOUT = "mouseout",
+function categoryCanToggle(rc: RenderedCategory): boolean {
+  if (!rc.properties.has(CATEGORY_EXPANSION_STATE_KEY)) {
+    return false;
+  }
+  const state = rc.properties.expectString(CATEGORY_EXPANSION_STATE_KEY);
+  return state === CATEGORY_STATE_COLLAPSED || state === CATEGORY_STATE_EXPANDED;
 }
 
 /** The name for a highlight reaction. */
 export const REACTION_HIGHLIGHT = "highlight";
 
 const supportedActions: Array<[string, string]> = [
-  [Targets.CATEGORY_HEADERS, Actions.CLICK],
-  [Targets.CATEGORY_HEADERS, Actions.MOUSEOVER],
-  [Targets.CATEGORY_HEADERS, Actions.MOUSEOUT],
+  [CATEGORY_HEADERS_TARGET, CATEGORY_CLICK_ACTION],
+  [CATEGORY_HEADERS_TARGET, CATEGORY_MOUSEOVER_ACTION],
+  [CATEGORY_HEADERS_TARGET, CATEGORY_MOUSEOUT_ACTION],
 ];
 const supportedReactions: Array<[string, string]> = [
-  [Targets.CATEGORY_HEADERS, REACTION_HIGHLIGHT],
+  [CATEGORY_HEADERS_TARGET, REACTION_HIGHLIGHT],
 ];
 const supportedWatches: string[] = [];
 
@@ -127,8 +143,8 @@ export function RectangularCategoryHierarchyYAxis(
             .attr("stroke", coloring.colors(rc.properties).stroke || "#cecece");
           try {
             interactions?.update(
-              Targets.CATEGORY_HEADERS,
-              Actions.MOUSEOVER,
+              CATEGORY_HEADERS_TARGET,
+              CATEGORY_MOUSEOVER_ACTION,
               rc.properties,
             );
           } catch (err: unknown) {
@@ -143,8 +159,8 @@ export function RectangularCategoryHierarchyYAxis(
             .attr("stroke", "none");
           try {
             interactions?.update(
-              Targets.CATEGORY_HEADERS,
-              Actions.MOUSEOUT,
+              CATEGORY_HEADERS_TARGET,
+              CATEGORY_MOUSEOUT_ACTION,
               rc.properties,
             );
           } catch (err: unknown) {
@@ -156,8 +172,8 @@ export function RectangularCategoryHierarchyYAxis(
         .on("click", function (_event, rc) {
           try {
             interactions?.update(
-              Targets.CATEGORY_HEADERS,
-              Actions.CLICK,
+              CATEGORY_HEADERS_TARGET,
+              CATEGORY_CLICK_ACTION,
               rc.properties,
             );
           } catch (err: unknown) {
@@ -172,10 +188,12 @@ export function RectangularCategoryHierarchyYAxis(
       enteredNodes.append("rect").attr("class", "handle");
 
       enteredNodes.append("text").attr("dominant-baseline", "hanging");
+      enteredNodes.append("title");
 
       const mergedNodes = enteredNodes.merge(nodes);
 
       applyMaybeTransition(mergedNodes, transitionDurationMs, setNodeFrame);
+      mergedNodes.style("cursor", (rc) => categoryCanToggle(rc) ? "pointer" : null);
 
       applyMaybeTransition(
         mergedNodes.select<SVGRectElement>("rect.cat"),
@@ -209,6 +227,8 @@ export function RectangularCategoryHierarchyYAxis(
         .attr("x", (rc) => rc.renderSettings.categoryHandleValPx)
         .attr("fill", (rc) => coloring.colors(rc.properties).stroke || "")
         .text((rc) => getLabel(rc.properties));
+
+      mergedNodes.select("title").text(categoryTooltip);
     } catch (err: unknown) {
       appCore.err(
         err instanceof Error ? err : new ConfigurationError(String(err)),

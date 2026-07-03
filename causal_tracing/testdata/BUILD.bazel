@@ -1,0 +1,11 @@
+exports_files([
+    "causaltraces-schema.json",
+    "compose-post-ct-logs.json",
+])
+
+filegroup(
+    name = "compose_post_ct_logs",
+    srcs = ["compose-post-ct-logs.json"],
+    visibility = ["//visibility:public"],
+)
+

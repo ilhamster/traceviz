@@ -1,0 +1,28 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "data_source",
+    srcs = ["data_source.go"],
+    importpath = "github.com/ilhamster/traceviz/causal_tracing/data_source",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//causal_tracing/extendedotel",
+        "//causal_tracing/rendertrace",
+        "//server/go/category",
+        "//server/go/table",
+        "//server/go/util",
+        "@com_github_hashicorp_golang_lru//simplelru:go_default_library",
+        "@tracey//trace/parser",
+    ],
+)
+
+go_test(
+    name = "data_source_test",
+    srcs = ["data_source_test.go"],
+    data = ["//causal_tracing/testdata:compose_post_ct_logs"],
+    embed = [":data_source"],
+    deps = [
+        "//causal_tracing/rendertrace",
+        "//server/go/util",
+    ],
+)

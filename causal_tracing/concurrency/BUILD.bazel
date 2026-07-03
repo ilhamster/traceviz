@@ -1,0 +1,17 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "concurrency",
+    srcs = ["profile.go"],
+    importpath = "github.com/ilhamster/traceviz/causal_tracing/concurrency",
+    visibility = ["//visibility:public"],
+    deps = ["@tracey//trace"],
+)
+
+go_test(
+    name = "concurrency_test",
+    srcs = ["profile_test.go"],
+    embed = [":concurrency"],
+    deps = ["@tracey//trace"],
+)
+
