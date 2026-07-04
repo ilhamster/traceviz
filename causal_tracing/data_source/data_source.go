@@ -54,15 +54,16 @@ const (
 	// It also consumes hide_non_matching, hide_empty,
 	// show_only_critical_path, critical_path_start, critical_path_end, and
 	// critical_path_strategy to render the main-trace critical path overlay and
-	// optional critical-path visibility filter. It accepts trace_view_width_px
-	// as a query parameter. When focus_span_ids is present, it renders the
+	// optional critical-path visibility filter. It consumes theme to select
+	// backend-rendered colors. It accepts trace_view_width_px as a query
+	// parameter. When focus_span_ids is present, it renders the
 	// focused span stack and required ancestry.
 	traceQuery = "causal_tracing.trace"
 	// criticalPathTraceQuery returns the selected trace's current critical path
 	// rendered as an overtime TraceViz trace. It consumes corpus_path, trace_id,
 	// temporal_domain_start, temporal_domain_end, critical_path_start,
-	// critical_path_end, and critical_path_strategy as ambient global filters. It
-	// accepts trace_view_width_px as a query parameter.
+	// critical_path_end, critical_path_strategy, and theme as ambient global
+	// filters. It accepts trace_view_width_px as a query parameter.
 	criticalPathTraceQuery = "causal_tracing.critical_path_trace"
 	// spanCausalityQuery returns a table of causality entries for the current
 	// focused span stack head. It consumes corpus_path, trace_id, and
@@ -126,6 +127,7 @@ const (
 	hideNonMatchingKey           = "hide_non_matching"
 	hideEmptyKey                 = "hide_empty"
 	showOnlyCriticalPathKey      = "show_only_critical_path"
+	themeKey                     = "theme"
 )
 
 var (
@@ -511,6 +513,25 @@ func displayControls(globalFilters map[string]*util.V) (hideNonMatching, hideEmp
 	return hideNonMatching, hideEmpty, showOnlyCriticalPath, nil
 }
 
+func theme(globalFilters map[string]*util.V) (rendertrace.Theme, error) {
+	themeValue, ok := globalFilters[themeKey]
+	if !ok {
+		return rendertrace.ThemeLight, nil
+	}
+	themeName, err := util.ExpectStringValue(themeValue)
+	if err != nil {
+		return "", fmt.Errorf("global filter %q must be a string: %w", themeKey, err)
+	}
+	switch rendertrace.Theme(themeName) {
+	case "", rendertrace.ThemeLight:
+		return rendertrace.ThemeLight, nil
+	case rendertrace.ThemeDark:
+		return rendertrace.ThemeDark, nil
+	default:
+		return rendertrace.ThemeLight, nil
+	}
+}
+
 func expectStringBoolGlobalFilter(key string, value *util.V) (bool, error) {
 	stringValue, err := util.ExpectStringValue(value)
 	if err != nil {
@@ -623,6 +644,7 @@ func (ds *DataSource) HandleDataSeriesRequests(
 	draftCriticalPathStart, draftCriticalPathEnd, draftCriticalPathStrategy, draftCriticalPathControlsErr := draftCriticalPathControls(globalFilters)
 	search, expandMatches, searchControlsErr := searchControls(globalFilters)
 	hideNonMatching, hideEmpty, showOnlyCriticalPath, displayControlsErr := displayControls(globalFilters)
+	selectedTheme, themeErr := theme(globalFilters)
 	searchDraft, draftSearchErr := draftSearch(globalFilters)
 	committedTransformTemplate, transformTemplateErr := transformTemplate(globalFilters)
 	draftTransformTemplate, draftTransformErr := draftTransformTemplate(globalFilters)
@@ -647,6 +669,8 @@ func (ds *DataSource) HandleDataSeriesRequests(
 		loadErr = searchControlsErr
 	} else if displayControlsErr != nil {
 		loadErr = displayControlsErr
+	} else if themeErr != nil {
+		loadErr = themeErr
 	} else if draftSearchErr != nil {
 		loadErr = draftSearchErr
 	} else if transformTemplateErr != nil {
@@ -679,14 +703,14 @@ func (ds *DataSource) HandleDataSeriesRequests(
 			if loadErr != nil {
 				return loadErr
 			}
-			if err := handleTraceQuery(ctx, series, req.Options, coll, selectedTraceID, committedTransformTemplate, selectedHierarchyName, selectedFocusSpanIDs, selectedExpandedCategoryIDs, selectedTemporalDomain, criticalPathStart, criticalPathEnd, criticalPathStrategy, search, expandMatches, hideNonMatching, hideEmpty, showOnlyCriticalPath); err != nil {
+			if err := handleTraceQuery(ctx, series, req.Options, coll, selectedTraceID, committedTransformTemplate, selectedHierarchyName, selectedFocusSpanIDs, selectedExpandedCategoryIDs, selectedTemporalDomain, criticalPathStart, criticalPathEnd, criticalPathStrategy, search, expandMatches, hideNonMatching, hideEmpty, showOnlyCriticalPath, selectedTheme); err != nil {
 				return err
 			}
 		case criticalPathTraceQuery:
 			if loadErr != nil {
 				return loadErr
 			}
-			if err := handleCriticalPathTraceQuery(ctx, series, req.Options, coll, selectedTraceID, committedTransformTemplate, selectedHierarchyName, selectedTemporalDomain, criticalPathStart, criticalPathEnd, criticalPathStrategy); err != nil {
+			if err := handleCriticalPathTraceQuery(ctx, series, req.Options, coll, selectedTraceID, committedTransformTemplate, selectedHierarchyName, selectedTemporalDomain, criticalPathStart, criticalPathEnd, criticalPathStrategy, selectedTheme); err != nil {
 				return err
 			}
 		case spanCausalityQuery:
@@ -959,6 +983,7 @@ func handleTraceQuery(
 	hideNonMatching bool,
 	hideEmpty bool,
 	showOnlyCriticalPath bool,
+	theme rendertrace.Theme,
 ) error {
 	if coll == nil {
 		return fmt.Errorf("corpus is not loaded")
@@ -990,6 +1015,7 @@ func handleTraceQuery(
 		TraceID:              rendertrace.TraceID(selectedTraceID),
 		HierarchyType:        hierarchyType,
 		DisplayMode:          displayMode,
+		Theme:                theme,
 		TraceViewRangePx:     traceViewWidthPx,
 		FocusSpanIDs:         renderFocusSpanIDs(focusSpanIDs),
 		ExplicitExpanded:     renderExpandedCategoryIDs(expandedCategoryIDs),
@@ -1017,6 +1043,7 @@ func handleCriticalPathTraceQuery(
 	criticalPathStart string,
 	criticalPathEnd string,
 	criticalPathStrategy string,
+	theme rendertrace.Theme,
 ) error {
 	if coll == nil {
 		return fmt.Errorf("corpus is not loaded")
@@ -1044,6 +1071,7 @@ func handleCriticalPathTraceQuery(
 		TraceID:              rendertrace.TraceID(selectedTraceID),
 		HierarchyType:        hierarchyType,
 		DisplayMode:          rendertrace.DisplayAll,
+		Theme:                theme,
 		TraceViewRangePx:     traceViewWidthPx,
 		TemporalDomain:       temporalDomain,
 		CriticalPathStart:    criticalPathStart,

@@ -17,9 +17,11 @@
 */
 
 import {RenderedCategory, RenderedCategoryHierarchy} from '../category_axis/category_axis.js'
+import {Duration} from '../duration/duration.js';
 import {ConfigurationError, Severity} from '../errors/errors.js';
+import {Timestamp} from '../timestamp/timestamp.js';
 import {Node, startKey as traceEdgeStartKey} from '../trace_edge/trace_edge.js';
-import {DurationValue, TimestampValue, Value} from '../value/value.js';
+import {DurationValue, TimestampValue} from '../value/value.js';
 import {ValueMap} from '../value/value_map.js';
 
 import {endKey as traceEndKey, Span, startKey as traceStartKey, Subspan, Trace, TraceCategory, TraceRenderSettings as TraceRenderSettings} from './trace.js';
@@ -73,6 +75,11 @@ export class RenderedTraceEdge {
       readonly x1Px: number, readonly y1Px: number) {}
 }
 
+function isTraceSpan<T>(span: Span<T>|Subspan<T>): span is Span<T> {
+  return 'children' in span && Array.isArray(span.children) &&
+      'subspans' in span && Array.isArray(span.subspans);
+}
+
 /**
  * Returns the depth, in pixels, of the provided span and its descendants,
  * given the provided TraceRenderSettings.
@@ -80,7 +87,7 @@ export class RenderedTraceEdge {
 function spanTreeDepthPx<T>(
     span: Span<T>|Subspan<T>, renderSettings: TraceRenderSettings): number {
   let depthPx = renderSettings.spanWidthCatPx;
-  if (span instanceof Span) {
+  if (isTraceSpan(span)) {
     let descendantsDepthPx = 0;
     for (const child of span.children) {
       const childDepthPx = renderSettings.spanPaddingCatPx +
@@ -211,7 +218,7 @@ function addHorizontalSpan<T>(
       endpointNodeIDs: edgeNode.endpointNodeIDs,
     });
   }
-  if (span instanceof Span) {
+  if (isTraceSpan(span)) {
     for (const child of span.children) {
       y1Px = Math.max(
           y1Px,
@@ -345,11 +352,46 @@ function getEdgeRenderID(
       endpointNodeID}`;
 }
 
-function timeValueToString(value: Value): string {
+function unwrapTemporalValue(value: unknown): unknown {
+  if (value !== null && typeof value === 'object' && 'val' in value) {
+    return (value as {val: unknown}).val;
+  }
+  if (value !== null && typeof value === 'object' && 'wrappedDur' in value) {
+    return (value as {wrappedDur: unknown}).wrappedDur;
+  }
+  if (value !== null && typeof value === 'object' && 'wrappedTs' in value) {
+    return (value as {wrappedTs: unknown}).wrappedTs;
+  }
+  if (
+      value !== null && typeof value === 'object' && 'exportTo' in value &&
+      typeof (value as {exportTo: unknown}).exportTo === 'function') {
+    return (value as {exportTo: () => unknown}).exportTo();
+  }
+  return value;
+}
+
+function timeValueToString(value: unknown): string {
+  const unwrappedValue = unwrapTemporalValue(value);
   if (value instanceof TimestampValue) {
     return `${value.val.seconds}_${value.val.nanos}`;
+  } else if (unwrappedValue instanceof Timestamp) {
+    return `${unwrappedValue.seconds}_${unwrappedValue.nanos}`;
+  } else if (
+      unwrappedValue !== null && typeof unwrappedValue === 'object' &&
+      'seconds' in unwrappedValue && 'nanos' in unwrappedValue &&
+      typeof (unwrappedValue as {seconds: unknown}).seconds === 'number' &&
+      typeof (unwrappedValue as {nanos: unknown}).nanos === 'number') {
+    const timestamp = unwrappedValue as {seconds: number, nanos: number};
+    return `${timestamp.seconds}_${timestamp.nanos}`;
   } else if (value instanceof DurationValue) {
     return `${value.val.nanos}`;
+  } else if (unwrappedValue instanceof Duration) {
+    return `${unwrappedValue.nanos}`;
+  } else if (
+      unwrappedValue !== null && typeof unwrappedValue === 'object' &&
+      'nanos' in unwrappedValue &&
+      typeof (unwrappedValue as {nanos: unknown}).nanos === 'number') {
+    return `${(unwrappedValue as {nanos: number}).nanos}`;
   } else {
     throw new ConfigurationError(`Type ${typeof value} is not supported`)
         .from(SOURCE)

@@ -62,6 +62,7 @@ import {
 import type { Subscription } from 'rxjs';
 
 const DEFAULT_TRACE_PATH = '';
+const DEFAULT_THEME = 'light';
 const LOAD_STATUS_QUERY = 'causal_tracing.load_status';
 const CORPUS_TRACES_QUERY = 'causal_tracing.corpus_traces';
 const TRACE_STATUS_QUERY = 'causal_tracing.trace_status';
@@ -110,6 +111,7 @@ const EXPAND_MATCHES_KEY = 'expand_matches';
 const HIDE_NON_MATCHING_KEY = 'hide_non_matching';
 const HIDE_EMPTY_KEY = 'hide_empty';
 const SHOW_ONLY_CRITICAL_PATH_KEY = 'show_only_critical_path';
+const THEME_KEY = 'theme';
 const SEARCH_VALIDATION_REQUEST_KEY = 'search_validation_request';
 const TRANSFORM_VALIDATION_REQUEST_KEY = 'transform_validation_request';
 const CRITICAL_PATH_VALIDATION_REQUEST_KEY = 'critical_path_validation_request';
@@ -152,6 +154,7 @@ type CausalTracingState = {
   hideNonMatching: StringValue;
   hideEmpty: StringValue;
   showOnlyCriticalPath: StringValue;
+  theme: StringValue;
   searchValidationRequest: IntegerValue;
   transformValidationRequest: IntegerValue;
   criticalPathValidationRequest: IntegerValue;
@@ -577,6 +580,7 @@ function createCausalTracingState(): CausalTracingState {
   const hideNonMatching = new StringValue('false');
   const hideEmpty = new StringValue('false');
   const showOnlyCriticalPath = new StringValue('false');
+  const theme = new StringValue(DEFAULT_THEME);
   const searchValidationRequest = new IntegerValue(0);
   const transformValidationRequest = new IntegerValue(0);
   const criticalPathValidationRequest = new IntegerValue(0);
@@ -604,6 +608,7 @@ function createCausalTracingState(): CausalTracingState {
   core.globalState.set(HIDE_NON_MATCHING_KEY, hideNonMatching);
   core.globalState.set(HIDE_EMPTY_KEY, hideEmpty);
   core.globalState.set(SHOW_ONLY_CRITICAL_PATH_KEY, showOnlyCriticalPath);
+  core.globalState.set(THEME_KEY, theme);
 
   const dataQuery = core.addDataQuery();
   dataQuery.connect(new HttpDataFetcher(core));
@@ -631,6 +636,7 @@ function createCausalTracingState(): CausalTracingState {
         [HIDE_NON_MATCHING_KEY, hideNonMatching],
         [HIDE_EMPTY_KEY, hideEmpty],
         [SHOW_ONLY_CRITICAL_PATH_KEY, showOnlyCriticalPath],
+        [THEME_KEY, theme],
       ]),
     ),
   );
@@ -661,6 +667,7 @@ function createCausalTracingState(): CausalTracingState {
     hideNonMatching,
     hideEmpty,
     showOnlyCriticalPath,
+    theme,
     searchValidationRequest,
     transformValidationRequest,
     criticalPathValidationRequest,
@@ -748,6 +755,7 @@ export default function App(): JSX.Element {
     DEFAULT_HIERARCHY_TYPE;
   const focusSpanIDs = useValue<string[]>(state.focusSpanIDs, []) ?? [];
   const focusSpanID = focusSpanIDs.length > 0 ? focusSpanIDs[0] : '';
+  const focusSpanKey = focusSpanIDs.join('\x00');
   const criticalPathStrategy = useValue(
     state.criticalPathStrategy,
     DEFAULT_CRITICAL_PATH_STRATEGY,
@@ -776,14 +784,16 @@ export default function App(): JSX.Element {
   const hideEmpty = useValue(state.hideEmpty, 'false') === 'true';
   const showOnlyCriticalPath =
     useValue(state.showOnlyCriticalPath, 'false') === 'true';
+  const theme = useValue(state.theme, DEFAULT_THEME) ?? DEFAULT_THEME;
   const [searchValidationError, setSearchValidationError] = useState<string>('');
   const [criticalPathValidationError, setCriticalPathValidationError] =
     useState<string>('');
   const [transformModalOpen, setTransformModalOpen] = useState<boolean>(false);
   const [transformValidationError, setTransformValidationError] =
     useState<string>('');
+  const [focusStackOpen, setFocusStackOpen] = useState<boolean>(false);
   // Binds URL-hash state to the stable TraceViz Value objects that identify the
-  // selected corpus, trace, and hierarchy.
+  // selected corpus, trace, hierarchy, and theme.
   useEffect(() => {
     const urlHash = new UrlHash({
       unencoded: new ValueMap(
@@ -791,9 +801,10 @@ export default function App(): JSX.Element {
           ['corpus_path', state.corpusPath],
           [TRACE_ID_KEY, state.traceID],
           [HIERARCHY_TYPE_KEY, state.hierarchyType],
+          [THEME_KEY, state.theme],
         ]),
       ),
-      stateful: [TRACE_ID_KEY, HIERARCHY_TYPE_KEY],
+      stateful: [TRACE_ID_KEY, HIERARCHY_TYPE_KEY, THEME_KEY],
       onError: (err: unknown) => {
         state.core.err(
           err instanceof ConfigurationError
@@ -808,7 +819,13 @@ export default function App(): JSX.Element {
     return () => {
       urlHash.stop();
     };
-  }, [state.core, state.corpusPath, state.hierarchyType, state.traceID]);
+  }, [
+    state.core,
+    state.corpusPath,
+    state.hierarchyType,
+    state.theme,
+    state.traceID,
+  ]);
   const [tracePanelRef, measuredTraceWidthPx] = useMeasuredWidth();
   // Publishes measured trace panel width into TraceViz state so backend render
   // queries can downsample to the actual viewport.
@@ -817,10 +834,19 @@ export default function App(): JSX.Element {
       state.traceViewWidthPx.val = measuredTraceWidthPx;
     }
   }, [measuredTraceWidthPx, state.traceViewWidthPx]);
+  // Closes the focus-stack popover whenever focus mode exits.
+  useEffect(() => {
+    if (focusSpanIDs.length === 0) {
+      setFocusStackOpen(false);
+    }
+  }, [focusSpanIDs.length]);
   // Reuses an empty parameter map for queries whose inputs are all global filters.
   const emptyParams = useMemo(() => new ValueMap(), []);
   // Supplies only the trace viewport width as a per-query parameter; trace identity
-  // and render policy stay in global filters.
+  // and render policy stay in global filters.  The focus stack remains a global
+  // filter, but it is included in this memo's dependency list so focus-mode
+  // table interactions rebuild this query subscription and cannot leave the
+  // timeline rendering on the previous stack.
   const traceParams = useMemo(
     () =>
       new ValueMap(
@@ -828,7 +854,7 @@ export default function App(): JSX.Element {
           [TRACE_VIEW_WIDTH_PX_PARAM, state.traceViewWidthPx],
         ]),
       ),
-    [state.traceViewWidthPx],
+    [focusSpanKey, state.traceViewWidthPx],
   );
   const globalRef = (key: string): GlobalValueRef =>
     new GlobalValueRef(state.core, key);
@@ -868,6 +894,7 @@ export default function App(): JSX.Element {
         globalRef(HIDE_NON_MATCHING_KEY),
         globalRef(HIDE_EMPTY_KEY),
         globalRef(SHOW_ONLY_CRITICAL_PATH_KEY),
+        globalRef(THEME_KEY),
         new DirectValueRef(state.traceViewWidthPx, 'trace view width'),
       ]),
     [state.core, state.traceViewWidthPx],
@@ -1339,15 +1366,23 @@ export default function App(): JSX.Element {
   };
 
   const popFocusSpan = (): void => {
+    if (focusSpanIDs.length <= 1) {
+      setFocusStackOpen(false);
+    }
     state.focusSpanIDs.val = focusSpanIDs.slice(1);
   };
 
   const clearFocusSpans = (): void => {
+    setFocusStackOpen(false);
     state.focusSpanIDs.val = [];
   };
 
   const resetZoom = (): void => {
     resetTemporalDomain(state.temporalDomainStart, state.temporalDomainEnd);
+  };
+
+  const toggleTheme = (): void => {
+    state.theme.val = theme === 'dark' ? 'light' : 'dark';
   };
 
   const applySearch = (): void => {
@@ -1669,7 +1704,39 @@ export default function App(): JSX.Element {
         </div>
         {focusSpanIDs.length > 0 ? (
           <div className="focus-bar" aria-label="Focused span stack controls">
-            <span className="focus-head">Head: {focusSpanID}</span>
+            <div className="focus-stack-menu">
+              <button
+                className="focus-head"
+                type="button"
+                aria-expanded={focusStackOpen}
+                aria-controls="focus-stack-list"
+                onClick={() => {
+                  setFocusStackOpen((open) => !open);
+                }}
+              >
+                Head: {focusSpanID}
+              </button>
+              {focusStackOpen ? (
+                <div
+                  className="focus-stack-popover"
+                  id="focus-stack-list"
+                  role="list"
+                >
+                  {focusSpanIDs.map((spanID, index) => (
+                    <div
+                      className="focus-stack-row"
+                      key={`${spanID}:${index}`}
+                      role="listitem"
+                    >
+                      <span className="focus-stack-index">
+                        {index === 0 ? 'Head' : `#${index + 1}`}
+                      </span>
+                      <span className="focus-stack-id">{spanID}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
             <span>{focusSpanIDs.length} span{focusSpanIDs.length === 1 ? '' : 's'}</span>
             <button className="plain-button" type="button" onClick={popFocusSpan}>
               Pop
@@ -1815,124 +1882,134 @@ export default function App(): JSX.Element {
 
   return (
     <AppCoreContext.Provider value={state.core}>
-      <KeypressListener interactions={keypressInteractions} />
-      <main className="app-shell">
-        <section className="control-group trace-selection-group" aria-label="Trace selection">
-          <div className="control-group-heading">
-            <h2>Trace selection</h2>
-          </div>
-          <div className="toolbar">
-            <label className="field">
-              <span>Corpus file</span>
-              <input
-                value={corpusPath}
-                onChange={(event) => {
-                  setCorpusPath(event.target.value);
-                }}
-              />
-            </label>
-            {selectedTraceID !== '' ? (
-              <label className="field compact">
-                <span>Trace ID</span>
+      <div className="app-root" data-theme={theme === 'dark' ? 'dark' : 'light'}>
+        <KeypressListener interactions={keypressInteractions} />
+        <main className="app-shell">
+          <section className="control-group trace-selection-group" aria-label="Trace selection">
+            <div className="control-group-heading">
+              <h2>Trace selection</h2>
+              <button
+                className="toggle-button theme-toggle"
+                type="button"
+                aria-pressed={theme === 'dark'}
+                onClick={toggleTheme}
+              >
+                {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+              </button>
+            </div>
+            <div className="toolbar">
+              <label className="field">
+                <span>Corpus file</span>
                 <input
-                  value={selectedTraceID}
+                  value={corpusPath}
                   onChange={(event) => {
-                    state.focusSpanIDs.val = [];
-                    state.transformTemplate.val = '';
-                    state.draftTransformTemplate.val = '';
-                    setTransformValidationError('');
-                    resetTemporalDomain(
-                      state.temporalDomainStart,
-                      state.temporalDomainEnd,
-                    );
-                    state.traceID.val = event.target.value;
+                    setCorpusPath(event.target.value);
                   }}
                 />
               </label>
-            ) : null}
-            {selectedTraceID !== '' ? (
-              <div className="toolbar-actions">
-                <button
-                  className="plain-button"
-                  type="button"
-                  onClick={clearSelectedTrace}
-                >
-                  Back to corpus
-                </button>
-                <button
-                  className="plain-button"
-                  type="button"
-                  onClick={openTransformModal}
-                >
-                  Transform
-                </button>
-                {transformTemplate !== '' ? (
-                  <span className="status-badge transformed">Transformed</span>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-        </section>
-        {selectedTraceID === '' ? corpusView : traceView}
-      </main>
-      {transformModalOpen ? (
-        <div className="modal-backdrop" role="presentation">
-          <section
-            className="modal-panel"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Trace transform"
-          >
-            <div className="panel-heading">
-              <h2>Trace transform</h2>
-              <button
-                className="plain-button"
-                type="button"
-                onClick={closeTransformModal}
-              >
-                Close
-              </button>
-            </div>
-            <label
-              className={
-                transformValidationError === ''
-                  ? 'field transform-field'
-                  : 'field transform-field invalid'
-              }
-            >
-              <span>Transform template</span>
-              <textarea
-                value={draftTransformTemplate}
-                onChange={(event) => {
-                  state.draftTransformTemplate.val = event.target.value;
-                  setTransformValidationError('');
-                }}
-              />
-              {transformValidationError !== '' ? (
-                <span className="field-error">{transformValidationError}</span>
+              {selectedTraceID !== '' ? (
+                <label className="field compact">
+                  <span>Trace ID</span>
+                  <input
+                    value={selectedTraceID}
+                    onChange={(event) => {
+                      state.focusSpanIDs.val = [];
+                      state.transformTemplate.val = '';
+                      state.draftTransformTemplate.val = '';
+                      setTransformValidationError('');
+                      resetTemporalDomain(
+                        state.temporalDomainStart,
+                        state.temporalDomainEnd,
+                      );
+                      state.traceID.val = event.target.value;
+                    }}
+                  />
+                </label>
               ) : null}
-            </label>
-            <div className="modal-actions">
-              <button
-                className="plain-button"
-                type="button"
-                disabled={transformValidation.loading}
-                onClick={commitTransform}
-              >
-                {transformValidation.loading ? 'Transforming' : 'Transform'}
-              </button>
-              <button
-                className="plain-button"
-                type="button"
-                onClick={clearTransform}
-              >
-                Clear transform
-              </button>
+              {selectedTraceID !== '' ? (
+                <div className="toolbar-actions">
+                  <button
+                    className="plain-button"
+                    type="button"
+                    onClick={clearSelectedTrace}
+                  >
+                    Back to corpus
+                  </button>
+                  <button
+                    className="plain-button"
+                    type="button"
+                    onClick={openTransformModal}
+                  >
+                    Transform
+                  </button>
+                  {transformTemplate !== '' ? (
+                    <span className="status-badge transformed">Transformed</span>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           </section>
-        </div>
-      ) : null}
-      <ErrorToast />
+          {selectedTraceID === '' ? corpusView : traceView}
+        </main>
+        {transformModalOpen ? (
+          <div className="modal-backdrop" role="presentation">
+            <section
+              className="modal-panel"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Trace transform"
+            >
+              <div className="panel-heading">
+                <h2>Trace transform</h2>
+                <button
+                  className="plain-button"
+                  type="button"
+                  onClick={closeTransformModal}
+                >
+                  Close
+                </button>
+              </div>
+              <label
+                className={
+                  transformValidationError === ''
+                    ? 'field transform-field'
+                    : 'field transform-field invalid'
+                }
+              >
+                <span>Transform template</span>
+                <textarea
+                  value={draftTransformTemplate}
+                  onChange={(event) => {
+                    state.draftTransformTemplate.val = event.target.value;
+                    setTransformValidationError('');
+                  }}
+                />
+                {transformValidationError !== '' ? (
+                  <span className="field-error">{transformValidationError}</span>
+                ) : null}
+              </label>
+              <div className="modal-actions">
+                <button
+                  className="plain-button"
+                  type="button"
+                  disabled={transformValidation.loading}
+                  onClick={commitTransform}
+                >
+                  {transformValidation.loading ? 'Transforming' : 'Transform'}
+                </button>
+                <button
+                  className="plain-button"
+                  type="button"
+                  onClick={clearTransform}
+                >
+                  Clear transform
+                </button>
+              </div>
+            </section>
+          </div>
+        ) : null}
+        <ErrorToast />
+      </div>
     </AppCoreContext.Provider>
   );
 }

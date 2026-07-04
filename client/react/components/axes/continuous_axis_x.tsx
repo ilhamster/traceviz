@@ -46,11 +46,60 @@ export function xAxisRenderSettings(
 }
 
 export function axisValue(val: unknown): number {
+  let unwrappedVal =
+    val !== null && typeof val === "object" && "val" in val
+      ? (val as { val: unknown }).val
+      : val;
+  if (
+    unwrappedVal !== null &&
+    typeof unwrappedVal === "object" &&
+    "wrappedDur" in unwrappedVal
+  ) {
+    unwrappedVal = (unwrappedVal as { wrappedDur: unknown }).wrappedDur;
+  }
+  if (
+    unwrappedVal !== null &&
+    typeof unwrappedVal === "object" &&
+    "wrappedTs" in unwrappedVal
+  ) {
+    unwrappedVal = (unwrappedVal as { wrappedTs: unknown }).wrappedTs;
+  }
+  if (
+    unwrappedVal !== null &&
+    typeof unwrappedVal === "object" &&
+    "exportTo" in unwrappedVal &&
+    typeof (unwrappedVal as { exportTo: unknown }).exportTo === "function"
+  ) {
+    unwrappedVal = (unwrappedVal as { exportTo: () => unknown }).exportTo();
+  }
   if (val instanceof Duration) {
     return val.nanos;
   }
-  if (typeof val === "number") {
-    return val;
+  if (
+    unwrappedVal !== null &&
+    typeof unwrappedVal === "object" &&
+    "nanos" in unwrappedVal &&
+    !("seconds" in unwrappedVal) &&
+    typeof (unwrappedVal as { nanos: unknown }).nanos === "number"
+  ) {
+    return (unwrappedVal as { nanos: number }).nanos;
+  }
+  if (unwrappedVal instanceof Timestamp) {
+    return unwrappedVal.seconds * 1_000_000_000 + unwrappedVal.nanos;
+  }
+  if (
+    unwrappedVal !== null &&
+    typeof unwrappedVal === "object" &&
+    "seconds" in unwrappedVal &&
+    "nanos" in unwrappedVal &&
+    typeof (unwrappedVal as { seconds: unknown }).seconds === "number" &&
+    typeof (unwrappedVal as { nanos: unknown }).nanos === "number"
+  ) {
+    const timestamp = unwrappedVal as { seconds: number; nanos: number };
+    return timestamp.seconds * 1_000_000_000 + timestamp.nanos;
+  }
+  if (typeof unwrappedVal === "number") {
+    return unwrappedVal;
   }
   throw new ConfigurationError(
     "axis value must be number, Duration, or Timestamp",

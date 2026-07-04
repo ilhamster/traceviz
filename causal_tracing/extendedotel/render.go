@@ -262,6 +262,135 @@ func (t *Trace) CriticalPathVisibility(
 	return visibility, nil
 }
 
+// FocusDependencyOverlay projects dependencies between spans in the current
+// focused-span stack into TraceViz trace-edge nodes.
+func (t *Trace) FocusDependencyOverlay(
+	ctx context.Context,
+	view rendertrace.RenderView,
+) (*rendertrace.TraceEdgeOverlay, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	focusedSpans := t.focusedSpans(view)
+	if len(focusedSpans) < 2 {
+		return nil, nil
+	}
+	overlay := &rendertrace.TraceEdgeOverlay{
+		NodesBySpanID: map[rendertrace.SpanID][]rendertrace.TraceEdgeOverlayNode{},
+	}
+	sequence := 0
+	originSpanIDs := make([]rendertrace.SpanID, 0, len(focusedSpans))
+	for originSpanID := range focusedSpans {
+		originSpanIDs = append(originSpanIDs, originSpanID)
+	}
+	sort.Slice(originSpanIDs, func(i, j int) bool {
+		return originSpanIDs[i] < originSpanIDs[j]
+	})
+	for _, originSpanID := range originSpanIDs {
+		originSpan := focusedSpans[originSpanID]
+		for _, elementarySpan := range originSpan.ElementarySpans() {
+			dependency := elementarySpan.Outgoing()
+			if dependency == nil ||
+				!sameElementarySpan(elementarySpan, dependency.TriggeringOrigin(), t.namer) {
+				continue
+			}
+			for destinationIndex, destination := range dependency.Destinations() {
+				if destination == nil || destination.Span() == nil {
+					continue
+				}
+				if !durationInRange(elementarySpan.End(), view.TemporalDomain) ||
+					!durationInRange(destination.Start(), view.TemporalDomain) {
+					continue
+				}
+				destinationSpanID := rendertrace.DefaultSpanID[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload](
+					destination.Span(),
+					t.namer,
+				)
+				if _, ok := focusedSpans[destinationSpanID]; !ok {
+					continue
+				}
+				originNodeID := fmt.Sprintf("focus-dependency:%d:origin", sequence)
+				destinationNodeID := fmt.Sprintf("focus-dependency:%d:destination:%d", sequence, destinationIndex)
+				overlay.NodesBySpanID[originSpanID] = append(
+					overlay.NodesBySpanID[originSpanID],
+					rendertrace.TraceEdgeOverlayNode{
+						ID:              originNodeID,
+						Moment:          elementarySpan.End(),
+						EndpointNodeIDs: []string{destinationNodeID},
+					},
+				)
+				overlay.NodesBySpanID[destinationSpanID] = append(
+					overlay.NodesBySpanID[destinationSpanID],
+					rendertrace.TraceEdgeOverlayNode{
+						ID:     destinationNodeID,
+						Moment: destination.Start(),
+					},
+				)
+				sequence++
+			}
+		}
+	}
+	if sequence == 0 {
+		return nil, nil
+	}
+	return overlay, nil
+}
+
+func (t *Trace) focusedSpans(
+	view rendertrace.RenderView,
+) map[rendertrace.SpanID]trace.Span[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload] {
+	focusedPayloadIDs := map[string]struct{}{}
+	for _, focusSpanID := range view.Request.FocusSpanIDs {
+		focusedPayloadIDs[string(focusSpanID)] = struct{}{}
+	}
+	ret := map[rendertrace.SpanID]trace.Span[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload]{}
+	for _, rootSpan := range t.trace.RootSpans() {
+		collectFocusedSpans(rootSpan, focusedPayloadIDs, t.namer, ret)
+	}
+	return ret
+}
+
+func collectFocusedSpans(
+	span trace.Span[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
+	focusedPayloadIDs map[string]struct{},
+	namer *Namer,
+	ret map[rendertrace.SpanID]trace.Span[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
+) {
+	if payload := span.Payload(); payload != nil {
+		if _, ok := focusedPayloadIDs[payload.SpanID]; ok {
+			spanID := rendertrace.DefaultSpanID[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload](
+				span,
+				namer,
+			)
+			ret[spanID] = span
+		}
+	}
+	for _, child := range span.ChildSpans() {
+		collectFocusedSpans(child, focusedPayloadIDs, namer, ret)
+	}
+}
+
+func sameElementarySpan(
+	left trace.ElementarySpan[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
+	right trace.ElementarySpan[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
+	namer *Namer,
+) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	leftSpanID := rendertrace.DefaultSpanID[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload](
+		left.Span(),
+		namer,
+	)
+	rightSpanID := rendertrace.DefaultSpanID[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload](
+		right.Span(),
+		namer,
+	)
+	return leftSpanID == rightSpanID &&
+		left.Start() == right.Start() &&
+		left.End() == right.End()
+}
+
 type criticalPathOverlayElement struct {
 	spanID   rendertrace.SpanID
 	sequence int
@@ -465,14 +594,15 @@ func (cv categoryView) RenderTraceVizCategory(
 	if payload == nil {
 		return nil, fmt.Errorf("extended OTel category has nil payload")
 	}
-	categoryColor := serviceColor(payload.ServiceName)
+	palette := paletteForTheme(view.Request.Theme)
+	categoryColor := serviceColor(payload.ServiceName, view)
 	primaryColor := categoryColor
 	if categoryMatchesSearch(cv.ID(), view) {
-		primaryColor = searchMatchColor
+		primaryColor = palette.searchMatch
 	}
 	secondaryColor := categoryColor
 	if categoryContainsSearchMatch(cv.ID(), view) {
-		secondaryColor = searchMatchColor
+		secondaryColor = palette.searchMatch
 	}
 	expansionState := cv.categoryExpansionState(view)
 	return parent.Category(
@@ -480,7 +610,7 @@ func (cv categoryView) RenderTraceVizCategory(
 		label.Format("$(category_label)"),
 		color.Primary(primaryColor),
 		color.Secondary(secondaryColor),
-		color.Stroke("#202124"),
+		color.Stroke(palette.stroke),
 		util.StringProperty("category_id", string(cv.ID())),
 		util.StringProperty("category_name", payload.Name),
 		util.StringProperty("category_label", categoryExpansionGlyph(expansionState)+payload.Name),
@@ -543,13 +673,13 @@ func (cv criticalPathCategoryView) RenderTraceVizCategory(
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	const categoryColor = "#e8eaed"
+	palette := paletteForTheme(view.Request.Theme)
 	return parent.Category(
 		category.New(string(cv.ID()), "Temporal critical path", "Temporal critical path"),
 		label.Format("$(category_label)"),
-		color.Primary(categoryColor),
-		color.Secondary(categoryColor),
-		color.Stroke("#202124"),
+		color.Primary(palette.criticalPathCategory),
+		color.Secondary(palette.criticalPathCategory),
+		color.Stroke(palette.stroke),
 		util.StringProperty("category_id", string(cv.ID())),
 		util.StringProperty("category_name", "Temporal critical path"),
 		util.StringProperty("category_label", "Temporal critical path"),
@@ -648,7 +778,8 @@ func (sv criticalPathFrameSpanView) RenderTraceVizSpan(
 		name = "category"
 	}
 	serviceName := categoryPayload.ServiceName
-	serviceColor := serviceColor(serviceName)
+	palette := paletteForTheme(view.Request.Theme)
+	serviceColor := serviceColor(serviceName, view)
 	start, end := sv.clippedRange(view.TemporalDomain)
 	return parent.Span(
 		start,
@@ -656,7 +787,7 @@ func (sv criticalPathFrameSpanView) RenderTraceVizSpan(
 		label.Format("$(span_name)"),
 		color.Primary(serviceColor),
 		color.Secondary(serviceColor),
-		color.Stroke("#202124"),
+		color.Stroke(palette.stroke),
 		util.StringProperty("span_kind", string(criticalPathCategoryFrameKind)),
 		util.StringProperty("span_name", name),
 		util.StringProperty("category_name", name),
@@ -697,13 +828,14 @@ func (sv criticalPathFrameSpanView) renderLeafTraceVizSpan(
 		labelText = sv.spanID()
 	}
 	start, end := sv.clippedRange(view.TemporalDomain)
+	palette := paletteForTheme(view.Request.Theme)
 	renderedSpan := parent.Span(
 		start,
 		end,
 		label.Format("$(span_name)"),
-		color.Primary(realSpanColor),
-		color.Secondary(realSpanColor),
-		color.Stroke("#202124"),
+		color.Primary(palette.realSpan),
+		color.Secondary(palette.realSpan),
+		color.Stroke(palette.stroke),
 		util.StringProperty("span_kind", string(criticalPathLeafFrameKind)),
 		util.StringProperty("span_id", payload.SpanID),
 		util.StringProperty("span_name", labelText),
@@ -726,9 +858,9 @@ func (sv criticalPathFrameSpanView) renderLeafTraceVizSpan(
 		renderedSpan.Subspan(
 			suspend.Start,
 			suspend.End,
-			color.Primary("rgba(128, 128, 128, 0.48)"),
-			color.Secondary("rgba(128, 128, 128, 0.48)"),
-			color.Stroke("#202124"),
+			color.Primary(palette.suspendOverlay),
+			color.Secondary(palette.suspendOverlay),
+			color.Stroke(palette.stroke),
 			util.StringProperty("subspan_kind", "critical_path_suspend"),
 			util.StringProperty("span_id", payload.SpanID),
 			util.StringProperty("span_name", labelText),
@@ -752,9 +884,9 @@ func (sv criticalPathFrameSpanView) renderLeafTraceVizSpan(
 		renderedSpan.Subspan(
 			gapStart,
 			gapEnd,
-			color.Primary("rgba(70, 70, 70, 0.58)"),
-			color.Secondary("rgba(70, 70, 70, 0.58)"),
-			color.Stroke("#202124"),
+			color.Primary(palette.criticalPathGapOverlay),
+			color.Secondary(palette.criticalPathGapOverlay),
+			color.Stroke(palette.stroke),
 			util.StringProperty("subspan_kind", "critical_path_no_longer_running"),
 			util.StringProperty("span_id", payload.SpanID),
 			util.StringProperty("span_name", labelText),
@@ -958,26 +1090,88 @@ const (
 
 type renderedCausalEventStyle struct {
 	displayName string
-	color       string
+	lightColor  string
+	darkColor   string
 }
 
 var renderedCausalEventStyles = map[renderedCausalEventKind]renderedCausalEventStyle{
 	renderedIncomingDependencyEvent: {
 		displayName: "Incoming dependency",
-		color:       "#2166ac",
+		lightColor:  "#2166ac",
+		darkColor:   "#38bdf8",
 	},
 	renderedOutgoingDependencyEvent: {
 		displayName: "Outgoing dependency",
-		color:       "#b2182b",
+		lightColor:  "#b2182b",
+		darkColor:   "#fb7185",
 	},
 	renderedMarkEvent: {
 		displayName: "Mark",
-		color:       "#4d9221",
+		lightColor:  "#4d9221",
+		darkColor:   "#a3e635",
 	},
 }
 
-const realSpanColor = "#9ecae1"
-const searchMatchColor = "#f97316"
+func (style renderedCausalEventStyle) color(theme rendertrace.Theme) string {
+	if theme == rendertrace.ThemeDark {
+		return style.darkColor
+	}
+	return style.lightColor
+}
+
+type renderPalette struct {
+	realSpan                   string
+	searchMatch                string
+	stroke                     string
+	criticalPathCategory       string
+	criticalPathEdge           string
+	focusDependencyEdge        string
+	suspendOverlay             string
+	criticalPathGapOverlay     string
+	serviceSaturation          int
+	serviceLightness           int
+	heatmapBaseSaturation      int
+	heatmapAddedSaturation     int
+	heatmapBaseLightness       int
+	heatmapSubtractedLightness int
+}
+
+func paletteForTheme(theme rendertrace.Theme) renderPalette {
+	if theme == rendertrace.ThemeDark {
+		return renderPalette{
+			realSpan:                   "#93c5fd",
+			searchMatch:                "#fb923c",
+			stroke:                     "#111827",
+			criticalPathCategory:       "#cbd5e1",
+			criticalPathEdge:           "#c084fc",
+			focusDependencyEdge:        "#2dd4bf",
+			suspendOverlay:             "rgba(15, 23, 42, 0.56)",
+			criticalPathGapOverlay:     "rgba(2, 6, 23, 0.68)",
+			serviceSaturation:          58,
+			serviceLightness:           72,
+			heatmapBaseSaturation:      42,
+			heatmapAddedSaturation:     30,
+			heatmapBaseLightness:       36,
+			heatmapSubtractedLightness: -28,
+		}
+	}
+	return renderPalette{
+		realSpan:                   "#9ecae1",
+		searchMatch:                "#f97316",
+		stroke:                     "#202124",
+		criticalPathCategory:       "#e8eaed",
+		criticalPathEdge:           "#3730a3",
+		focusDependencyEdge:        "#0f766e",
+		suspendOverlay:             "rgba(128, 128, 128, 0.48)",
+		criticalPathGapOverlay:     "rgba(70, 70, 70, 0.58)",
+		serviceSaturation:          32,
+		serviceLightness:           85,
+		heatmapBaseSaturation:      18,
+		heatmapAddedSaturation:     22,
+		heatmapBaseLightness:       96,
+		heatmapSubtractedLightness: 18,
+	}
+}
 
 type renderedCausalEvent struct {
 	kind           renderedCausalEventKind
@@ -1037,7 +1231,8 @@ func (sv syntheticServiceSpanView) RenderTraceVizSpan(
 	if serviceName == "" {
 		serviceName = sv.categoryPayload.Name
 	}
-	serviceColor := serviceColor(serviceName)
+	palette := paletteForTheme(view.Request.Theme)
+	serviceColor := serviceColor(serviceName, view)
 	syntheticTooltip := tooltipText(
 		serviceName,
 		"Kind: synthetic_service",
@@ -1051,7 +1246,7 @@ func (sv syntheticServiceSpanView) RenderTraceVizSpan(
 		label.Format(""),
 		color.Primary(serviceColor),
 		color.Secondary(serviceColor),
-		color.Stroke("#202124"),
+		color.Stroke(palette.stroke),
 		util.StringProperty("span_kind", "synthetic_service"),
 		util.StringProperty("span_name", serviceName),
 		util.StringProperty("service_name", serviceName),
@@ -1059,8 +1254,55 @@ func (sv syntheticServiceSpanView) RenderTraceVizSpan(
 		util.IntegerProperty("concurrency_peak", int64(sv.concurrencyMap.Peak)),
 		util.StringProperty("tooltip", syntheticTooltip),
 	)
-	addCriticalPathOverlayNodes(renderedSpan, view, sv.ID())
-	for _, bucket := range sv.concurrencyMap.Buckets(concurrency.BucketOptions{
+	addTraceOverlayNodes(renderedSpan, view, sv.ID())
+	for _, bucket := range renderableConcurrencyBuckets(sv.concurrencyMap, serviceName, spanRange, view) {
+		bucketTooltip := tooltipText(
+			serviceName,
+			"Kind: concurrency_heatmap",
+			tooltipLine("Service", serviceName),
+			fmt.Sprintf("Avg concurrency: %.2f", bucket.Avg),
+			fmt.Sprintf("Peak concurrency: %d", bucket.Peak),
+			durationTooltipLine(bucket.Start, bucket.End),
+		)
+		renderedSpan.Subspan(
+			bucket.Start,
+			bucket.End,
+			label.Format(""),
+			color.Primary(bucket.Color),
+			color.Secondary(bucket.Color),
+			color.Stroke(bucket.Color),
+			util.StringProperty("subspan_kind", "concurrency_heatmap"),
+			util.StringProperty("span_kind", "synthetic_service"),
+			util.StringProperty("span_name", serviceName),
+			util.StringProperty("service_name", serviceName),
+			util.StringProperty("category_id", sv.categoryPayload.ID),
+			util.DoubleProperty("concurrency_avg", bucket.Avg),
+			util.IntegerProperty("concurrency_peak", int64(bucket.Peak)),
+			util.StringProperty("tooltip", bucketTooltip),
+		)
+	}
+	return renderedSpan, nil
+}
+
+type renderableConcurrencyBucket struct {
+	Start time.Duration
+	End   time.Duration
+	Color string
+	Avg   float64
+	Peak  int
+}
+
+func renderableConcurrencyBuckets(
+	profile *concurrency.Profile,
+	serviceName string,
+	spanRange rendertrace.TimeRange,
+	view rendertrace.RenderView,
+) []renderableConcurrencyBucket {
+	if profile == nil {
+		return nil
+	}
+	var ret []renderableConcurrencyBucket
+	for _, bucket := range profile.Buckets(concurrency.BucketOptions{
 		Domain: concurrency.Range{
 			Start: float64(view.TemporalDomain.Start),
 			End:   float64(view.TemporalDomain.End),
@@ -1073,35 +1315,39 @@ func (sv syntheticServiceSpanView) RenderTraceVizSpan(
 		MinimumFeatureWidthPx: view.Request.MinimumFeatureWidthPx,
 	}) {
 		intensity := 0.0
-		if sv.concurrencyMap.Peak > 0 {
-			intensity = bucket.Avg / float64(sv.concurrencyMap.Peak)
+		if profile.Peak > 0 {
+			intensity = bucket.Avg / float64(profile.Peak)
 		}
-		bucketColor := serviceHeatmapColor(serviceName, intensity)
-		bucketTooltip := tooltipText(
-			serviceName,
-			"Kind: concurrency_heatmap",
-			tooltipLine("Service", serviceName),
-			fmt.Sprintf("Avg concurrency: %.2f", bucket.Avg),
-			fmt.Sprintf("Peak concurrency: %d", bucket.Peak),
-			durationTooltipLine(time.Duration(bucket.Start), time.Duration(bucket.End)),
-		)
-		renderedSpan.Subspan(
-			time.Duration(bucket.Start),
-			time.Duration(bucket.End),
-			color.Primary(bucketColor),
-			color.Secondary(bucketColor),
-			color.Stroke("#202124"),
-			util.StringProperty("subspan_kind", "concurrency_heatmap"),
-			util.StringProperty("span_kind", "synthetic_service"),
-			util.StringProperty("span_name", serviceName),
-			util.StringProperty("service_name", serviceName),
-			util.StringProperty("category_id", sv.categoryPayload.ID),
-			util.DoubleProperty("concurrency_avg", bucket.Avg),
-			util.IntegerProperty("concurrency_peak", int64(bucket.Peak)),
-			util.StringProperty("tooltip", bucketTooltip),
-		)
+		next := renderableConcurrencyBucket{
+			Start: time.Duration(bucket.Start),
+			End:   time.Duration(bucket.End),
+			Color: serviceHeatmapColor(serviceName, intensity, view),
+			Avg:   bucket.Avg,
+			Peak:  bucket.Peak,
+		}
+		if len(ret) > 0 {
+			last := &ret[len(ret)-1]
+			if last.Color == next.Color && last.End == next.Start {
+				mergeConcurrencyBucket(last, next)
+				continue
+			}
+		}
+		ret = append(ret, next)
 	}
-	return renderedSpan, nil
+	return ret
+}
+
+func mergeConcurrencyBucket(into *renderableConcurrencyBucket, next renderableConcurrencyBucket) {
+	intoDuration := float64(into.End - into.Start)
+	nextDuration := float64(next.End - next.Start)
+	totalDuration := intoDuration + nextDuration
+	if totalDuration > 0 {
+		into.Avg = (into.Avg*intoDuration + next.Avg*nextDuration) / totalDuration
+	}
+	into.End = next.End
+	if next.Peak > into.Peak {
+		into.Peak = next.Peak
+	}
 }
 
 func (sv spanView) ID() rendertrace.SpanID {
@@ -1199,10 +1445,11 @@ func spanContainsSearchMatch(spanID rendertrace.SpanID, view rendertrace.RenderV
 }
 
 func spanPrimaryColor(spanID rendertrace.SpanID, view rendertrace.RenderView) string {
+	palette := paletteForTheme(view.Request.Theme)
 	if spanMatchesSearch(spanID, view) {
-		return searchMatchColor
+		return palette.searchMatch
 	}
-	return realSpanColor
+	return palette.realSpan
 }
 
 func markSpanCategoryAncestors(
@@ -1420,13 +1667,14 @@ func (sv spanView) RenderTraceVizSpan(
 		fmt.Sprintf("Causal events: %d", spanCausalEvents),
 		durationTooltipLine(sv.span.Start(), sv.span.End()),
 	)
+	palette := paletteForTheme(view.Request.Theme)
 	renderedSpan := parent.Span(
 		sv.span.Start(),
 		sv.span.End(),
 		label.Format("$(span_name)"),
 		color.Primary(spanPrimaryColor(sv.ID(), view)),
 		color.Secondary(spanPrimaryColor(sv.ID(), view)),
-		color.Stroke("#202124"),
+		color.Stroke(palette.stroke),
 		util.StringProperty("span_id", payload.SpanID),
 		util.StringProperty("span_name", labelText),
 		util.StringProperty("service_name", payload.ServiceName),
@@ -1436,7 +1684,7 @@ func (sv spanView) RenderTraceVizSpan(
 		util.IntegerProperty("causal_event_count", int64(spanCausalEvents)),
 		util.StringProperty("tooltip", tooltipText(spanTooltipLines...)),
 	)
-	addCriticalPathOverlayNodes(renderedSpan, view, sv.ID())
+	addTraceOverlayNodes(renderedSpan, view, sv.ID())
 	for _, suspend := range renderableSuspendIntervals(sv.span, view) {
 		suspendTooltipLines := append(
 			[]string{labelText, "Kind: suspend"},
@@ -1446,9 +1694,9 @@ func (sv spanView) RenderTraceVizSpan(
 		renderedSpan.Subspan(
 			suspend.Start,
 			suspend.End,
-			color.Primary("rgba(128, 128, 128, 0.48)"),
-			color.Secondary("rgba(128, 128, 128, 0.48)"),
-			color.Stroke("#202124"),
+			color.Primary(palette.suspendOverlay),
+			color.Secondary(palette.suspendOverlay),
+			color.Stroke(palette.stroke),
 			util.StringProperty("subspan_kind", "suspend"),
 			util.StringProperty("span_id", payload.SpanID),
 			util.StringProperty("span_name", labelText),
@@ -1460,6 +1708,7 @@ func (sv spanView) RenderTraceVizSpan(
 	}
 	for _, eventChip := range renderableCausalEventChips(sv.span, view, sv.namer) {
 		eventStyle := renderedCausalEventStyles[eventChip.Event.kind]
+		eventColor := eventStyle.color(view.Request.Theme)
 		eventTooltipLines := append(
 			[]string{
 				labelText,
@@ -1477,9 +1726,9 @@ func (sv spanView) RenderTraceVizSpan(
 		renderedSpan.Subspan(
 			eventChip.Start,
 			eventChip.End,
-			color.Primary(eventStyle.color),
-			color.Secondary(eventStyle.color),
-			color.Stroke("#202124"),
+			color.Primary(eventColor),
+			color.Secondary(eventColor),
+			color.Stroke(palette.stroke),
 			util.StringProperty("subspan_kind", "causal_event"),
 			util.StringProperty("event_type", string(eventChip.Event.kind)),
 			util.StringProperty("event_display_name", eventChip.Event.displayName),
@@ -1500,11 +1749,12 @@ func (sv spanView) RenderTraceVizSpan(
 	return renderedSpan, nil
 }
 
-func addCriticalPathOverlayNodes(
+func addTraceOverlayNodes(
 	renderedSpan *tvtrace.Span[time.Duration],
 	view rendertrace.RenderView,
 	spanID rendertrace.SpanID,
 ) {
+	palette := paletteForTheme(view.Request.Theme)
 	for _, node := range view.CriticalPathOverlay.NodesForSpan(spanID) {
 		traceedge.New(
 			view.TemporalAxis,
@@ -1513,10 +1763,23 @@ func addCriticalPathOverlayNodes(
 			node.ID,
 			node.EndpointNodeIDs...,
 		).With(
-			color.Stroke("#3730a3"),
-			color.Secondary("#3730a3"),
+			color.Stroke(palette.criticalPathEdge),
+			color.Secondary(palette.criticalPathEdge),
 			util.StringProperty("trace_edge_kind", "critical_path"),
 			util.StringProperty("critical_path_strategy", view.Request.ResolvedCriticalPathStrategy()),
+		)
+	}
+	for _, node := range view.FocusDependencyOverlay.NodesForSpan(spanID) {
+		traceedge.New(
+			view.TemporalAxis,
+			renderedSpan,
+			node.Moment,
+			node.ID,
+			node.EndpointNodeIDs...,
+		).With(
+			color.Stroke(palette.focusDependencyEdge),
+			color.Secondary(palette.focusDependencyEdge),
+			util.StringProperty("trace_edge_kind", "focus_dependency"),
 		)
 	}
 }
@@ -1915,6 +2178,10 @@ func clampDuration(moment time.Duration, domain rendertrace.TimeRange) time.Dura
 	return moment
 }
 
+func durationInRange(moment time.Duration, domain rendertrace.TimeRange) bool {
+	return moment >= domain.Start && moment <= domain.End
+}
+
 func bucketIndexFloor(moment time.Duration, domain rendertrace.TimeRange, bucketCount int) int {
 	if moment <= domain.Start {
 		return 0
@@ -1951,19 +2218,26 @@ func maxDuration(left, right time.Duration) time.Duration {
 	return right
 }
 
-func serviceColor(serviceName string) string {
-	return fmt.Sprintf("hsl(%d, 32%%, 85%%)", serviceHue(serviceName))
+func serviceColor(serviceName string, view rendertrace.RenderView) string {
+	palette := paletteForTheme(view.Request.Theme)
+	return fmt.Sprintf(
+		"hsl(%d, %d%%, %d%%)",
+		serviceHue(serviceName),
+		palette.serviceSaturation,
+		palette.serviceLightness,
+	)
 }
 
-func serviceHeatmapColor(serviceName string, intensity float64) string {
+func serviceHeatmapColor(serviceName string, intensity float64, view rendertrace.RenderView) string {
 	if intensity < 0 {
 		intensity = 0
 	}
 	if intensity > 1 {
 		intensity = 1
 	}
-	saturation := 18 + int(math.Round(22*intensity))
-	lightness := 96 - int(math.Round(18*intensity))
+	palette := paletteForTheme(view.Request.Theme)
+	saturation := palette.heatmapBaseSaturation + int(math.Round(float64(palette.heatmapAddedSaturation)*intensity))
+	lightness := palette.heatmapBaseLightness - int(math.Round(float64(palette.heatmapSubtractedLightness)*intensity))
 	return fmt.Sprintf("hsl(%d, %d%%, %d%%)", serviceHue(serviceName), saturation, lightness)
 }
 

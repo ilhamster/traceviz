@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ilhamster/traceviz/causal_tracing/concurrency"
+	"github.com/ilhamster/traceviz/causal_tracing/rendertrace"
 	criticalpath "github.com/ilhamster/tracey/critical_path"
 	"github.com/ilhamster/tracey/trace"
 )
@@ -237,6 +239,44 @@ func TestBuildCriticalPathFrameTreeMergesPrefixesAndRecordsGaps(t *testing.T) {
 	}
 	if got := len(childLeaf.gaps); got != 0 {
 		t.Fatalf("child leaf no-longer-running gaps = %d, want 0", got)
+	}
+}
+
+func TestRenderableConcurrencyBucketsMergeAdjacentSameColorBuckets(t *testing.T) {
+	profile := concurrency.FromIntervals("profile", []concurrency.Interval{
+		{Start: 0, End: float64(10 * time.Millisecond), Weight: 1},
+		{Start: float64(10 * time.Millisecond), End: float64(20 * time.Millisecond), Weight: 2},
+		{Start: float64(20 * time.Millisecond), End: float64(30 * time.Millisecond), Weight: 100},
+	})
+
+	got := renderableConcurrencyBuckets(
+		profile,
+		"svc",
+		rendertrace.TimeRange{Start: 0, End: 30 * time.Millisecond},
+		rendertrace.RenderView{
+			Request: rendertrace.RenderRequest{
+				Theme:                 rendertrace.ThemeLight,
+				TraceViewRangePx:      12,
+				MinimumFeatureWidthPx: 4,
+			},
+			TemporalDomain: rendertrace.TimeRange{Start: 0, End: 30 * time.Millisecond},
+		},
+	)
+	if gotLen, wantLen := len(got), 2; gotLen != wantLen {
+		t.Fatalf("renderableConcurrencyBuckets() length = %d, want %d: %+v", gotLen, wantLen, got)
+	}
+	first := got[0]
+	if first.Start != 0 || first.End != 20*time.Millisecond {
+		t.Fatalf("first merged bucket range = %v-%v, want 0s-20ms", first.Start, first.End)
+	}
+	if first.Avg != 1.5 {
+		t.Fatalf("first merged bucket avg = %v, want 1.5", first.Avg)
+	}
+	if first.Peak != 2 {
+		t.Fatalf("first merged bucket peak = %d, want 2", first.Peak)
+	}
+	if got[1].Peak != 100 {
+		t.Fatalf("second bucket peak = %d, want 100", got[1].Peak)
 	}
 }
 

@@ -84,6 +84,7 @@ type dataSeriesQueryCase struct {
 	seriesName    string
 	options       map[string]*util.V
 	want          []string
+	wantCount     map[string]int
 	dontWant      []string
 	wantErr       string
 }
@@ -125,6 +126,11 @@ func runDataSeriesQueryCase(t *testing.T, dataSource *DataSource, test dataSerie
 	for _, want := range test.want {
 		if !strings.Contains(pretty, want) {
 			t.Fatalf("PrettyPrint() missing %q:\n%s", want, pretty)
+		}
+	}
+	for want, count := range test.wantCount {
+		if gotCount := strings.Count(pretty, want); gotCount != count {
+			t.Fatalf("PrettyPrint() contains %q %d times, want %d:\n%s", want, gotCount, count, pretty)
 		}
 	}
 	for _, dontWant := range test.dontWant {

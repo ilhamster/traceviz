@@ -1,0 +1,21 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+
+go_library(
+    name = "traceviz_data_prettyprint_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/ilhamster/traceviz/server/go/tools/traceviz_data_prettyprint",
+    visibility = ["//visibility:private"],
+    deps = ["//server/go/util"],
+)
+
+go_binary(
+    name = "traceviz_data_prettyprint",
+    embed = [":traceviz_data_prettyprint_lib"],
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "traceviz_data_prettyprint_test",
+    srcs = ["main_test.go"],
+    embed = [":traceviz_data_prettyprint_lib"],
+)

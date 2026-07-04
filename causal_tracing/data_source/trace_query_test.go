@@ -53,6 +53,69 @@ func TestTraceQuery(t *testing.T) {
 			},
 		},
 		{
+			name:   "renders dependency edges between focused stack spans",
+			source: traceIDSource(traceyTrace1CorpusPath, "tracey-trace1"),
+			globalFilters: map[string]*util.V{
+				focusSpanIDsKey: util.StringsValue("s0.0.0/0", "s0.1.0", "s1.0.0"),
+			},
+			queryName:  traceQuery,
+			seriesName: "trace",
+			options: map[string]*util.V{
+				traceViewWidthPxKey: util.IntegerValue(1200),
+			},
+			want: []string{
+				"Prop 'payload_type': 'trace_edge_payload'",
+				"Prop 'trace_edge_kind': 'focus_dependency'",
+				"Prop 'trace_edge_node_id': 'focus-dependency:",
+				"Prop 'span_id': 's0.0.0/0'",
+				"Prop 'span_id': 's0.1.0'",
+				"Prop 'span_id': 's1.0.0'",
+			},
+			wantCount: map[string]int{
+				"Prop 'trace_edge_kind': 'focus_dependency'": 6,
+			},
+			dontWant: []string{
+				"Prop 'trace_edge_kind': 'critical_path'",
+			},
+		},
+		{
+			name:   "renders focused nested span",
+			source: traceIDSource(traceyTrace1CorpusPath, "tracey-trace1"),
+			globalFilters: map[string]*util.V{
+				focusSpanIDsKey: util.StringsValue("s0.0.0/0"),
+			},
+			queryName:  traceQuery,
+			seriesName: "trace",
+			options: map[string]*util.V{
+				traceViewWidthPxKey: util.IntegerValue(1200),
+			},
+			want: []string{
+				"Prop 'span_id': 's0.0.0/0'",
+				"Prop 'span_name': '0'",
+			},
+		},
+		{
+			name:   "renders focused nested span with cross-service stack",
+			source: traceIDSource(traceyTrace1CorpusPath, "tracey-trace1"),
+			globalFilters: map[string]*util.V{
+				focusSpanIDsKey: util.StringsValue("s0.0.0/0", "s1.0.0"),
+			},
+			queryName:  traceQuery,
+			seriesName: "trace",
+			options: map[string]*util.V{
+				traceViewWidthPxKey: util.IntegerValue(1200),
+			},
+			want: []string{
+				"Prop 'span_id': 's0.0.0'",
+				"Prop 'span_id': 's0.0.0/0'",
+				"Prop 'span_id': 's1.0.0'",
+				"Prop 'trace_edge_kind': 'focus_dependency'",
+			},
+			wantCount: map[string]int{
+				"Prop 'trace_edge_kind': 'focus_dependency'": 2,
+			},
+		},
+		{
 			name:       "defaults to collapsed categories",
 			source:     traceIndexSource(composePostCorpusPath, 0),
 			queryName:  traceQuery,
@@ -101,6 +164,50 @@ func TestTraceQuery(t *testing.T) {
 			want: []string{
 				"Prop 'category_expansion_state': 'force_expanded'",
 				"Prop 'category_label': '◆ compose-post-service'",
+				"Prop 'span_name': 'write_home_timeline_client'",
+				"Prop 'primary_color': '#f97316'",
+			},
+		},
+		{
+			name:   "dark theme selects dark trace palette",
+			source: traceIndexSource(composePostCorpusPath, 0),
+			globalFilters: map[string]*util.V{
+				searchKey:               util.StringValue("write_home_timeline_client"),
+				expandMatchesKey:        util.StringValue("true"),
+				themeKey:                util.StringValue("dark"),
+				criticalPathStartKey:    stringValue(rendertrace.DefaultCriticalPathStart),
+				criticalPathEndKey:      stringValue(rendertrace.DefaultCriticalPathEnd),
+				criticalPathStrategyKey: util.StringValue(rendertrace.DefaultCriticalPathStrategy),
+			},
+			queryName:  traceQuery,
+			seriesName: "trace",
+			options: map[string]*util.V{
+				traceViewWidthPxKey: util.IntegerValue(1200),
+			},
+			want: []string{
+				"Prop 'span_name': 'write_home_timeline_client'",
+				"Prop 'primary_color': '#fb923c'",
+				"Prop 'trace_edge_kind': 'critical_path'",
+				"Prop 'stroke_color': '#c084fc'",
+			},
+		},
+		{
+			name:   "invalid theme falls back to light palette",
+			source: traceIndexSource(composePostCorpusPath, 0),
+			globalFilters: map[string]*util.V{
+				searchKey:               util.StringValue("write_home_timeline_client"),
+				expandMatchesKey:        util.StringValue("true"),
+				themeKey:                util.StringValue("midnight"),
+				criticalPathStartKey:    stringValue(rendertrace.DefaultCriticalPathStart),
+				criticalPathEndKey:      stringValue(rendertrace.DefaultCriticalPathEnd),
+				criticalPathStrategyKey: util.StringValue(rendertrace.DefaultCriticalPathStrategy),
+			},
+			queryName:  traceQuery,
+			seriesName: "trace",
+			options: map[string]*util.V{
+				traceViewWidthPxKey: util.IntegerValue(1200),
+			},
+			want: []string{
 				"Prop 'span_name': 'write_home_timeline_client'",
 				"Prop 'primary_color': '#f97316'",
 			},

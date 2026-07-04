@@ -93,6 +93,24 @@ function calledOutCategory(
   return null;
 }
 
+function stringLikeValue(value: unknown): string | null {
+  if (value instanceof StringValue) {
+    return value.val;
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  if (
+    value !== null &&
+    typeof value === "object" &&
+    "val" in value &&
+    typeof (value as { val: unknown }).val === "string"
+  ) {
+    return (value as { val: string }).val;
+  }
+  return null;
+}
+
 function axisOffsetValue(trace: Trace<unknown>, offset: number): Value {
   switch (trace.axis.type) {
     case AxisType.DURATION:
@@ -234,8 +252,8 @@ export function HorizontalTrace<T>(
             .at(Severity.ERROR);
         }
         const nextCategoryID = vm.get(CALLED_OUT_CATEGORY_ID_KEY);
-        const nextCategoryIDKey = vm.get(CATEGORY_ID_KEY);
-        if (!(nextCategoryIDKey instanceof StringValue)) {
+        const nextCategoryIDKey = stringLikeValue(vm.get(CATEGORY_ID_KEY));
+        if (nextCategoryIDKey === null) {
           throw new ConfigurationError(
             `'${CATEGORY_ID_KEY}' on watch '${UPDATE_CALLED_OUT_CATEGORY_WATCH}' must be a string`,
           )
@@ -243,7 +261,7 @@ export function HorizontalTrace<T>(
             .at(Severity.ERROR);
         }
         setCalledOutCategoryID({ value: nextCategoryID });
-        setCalledOutCategoryIDKey(nextCategoryIDKey.val);
+        setCalledOutCategoryIDKey(nextCategoryIDKey);
       },
       unsubscribe,
     );

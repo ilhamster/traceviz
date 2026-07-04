@@ -59,6 +59,16 @@ const (
 	DisplayOnlyMatches DisplayMode = "matches"
 )
 
+// Theme selects a broad visual palette for backend-rendered trace data.
+type Theme string
+
+const (
+	// ThemeLight renders colors for a light frontend shell.
+	ThemeLight Theme = "light"
+	// ThemeDark renders colors for a dark frontend shell.
+	ThemeDark Theme = "dark"
+)
+
 // RenderRequest contains all semantic view state needed to render a trace.
 //
 // Frontends should hold this state in TraceViz Values and send it on normal
@@ -102,6 +112,9 @@ type RenderRequest struct {
 	// ShowOnlyCriticalPath because it also requires critical-path endpoint and
 	// strategy state.
 	DisplayMode DisplayMode
+	// Theme selects the palette used by backend-rendered trace elements.
+	// Unknown or empty values should be treated as ThemeLight.
+	Theme Theme
 	// FocusSpanIDs contains the selected span stack for a focused-span view.
 	// The head of the stack is the first element. Implementations should render
 	// these spans and whatever category/span ancestry is required to locate
@@ -138,8 +151,12 @@ type RenderView struct {
 	SearchResult *SearchResult
 	// CriticalPathOverlay contains trace-edge nodes for the current critical
 	// path overlay, keyed by the rendered span ID to which they should attach.
-	// Nil means no overlay should be rendered.
+	// Nil means no critical-path overlay should be rendered.
 	CriticalPathOverlay *CriticalPathOverlay
+	// FocusDependencyOverlay contains trace-edge nodes for dependencies whose
+	// endpoints are both present in a focused-span stack. Nil means no focused
+	// dependency overlay should be rendered.
+	FocusDependencyOverlay *TraceEdgeOverlay
 	// CriticalPathVisibility identifies the spans and categories that should
 	// remain visible when Request.ShowOnlyCriticalPath is enabled. Nil means no
 	// critical-path visibility filter has been computed.
@@ -259,9 +276,9 @@ type SpanView interface {
 	) (*tvtrace.Span[time.Duration], error)
 }
 
-// CriticalPathOverlayNode is one trace-edge endpoint in a critical path
-// overlay, expressed in the generic render-time domain.
-type CriticalPathOverlayNode struct {
+// TraceEdgeOverlayNode is one trace-edge endpoint in an overlaid graph,
+// expressed in the generic render-time domain.
+type TraceEdgeOverlayNode struct {
 	// ID is the unique TraceViz trace-edge node ID.
 	ID string
 	// Moment is the endpoint's time within the rendered trace domain.
@@ -270,20 +287,27 @@ type CriticalPathOverlayNode struct {
 	EndpointNodeIDs []string
 }
 
-// CriticalPathOverlay is a render-time projection of a critical path into the
-// currently visible trace view.
-type CriticalPathOverlay struct {
-	NodesBySpanID map[SpanID][]CriticalPathOverlayNode
+// TraceEdgeOverlay is a render-time projection of extra trace-edge nodes onto
+// the currently visible trace view.
+type TraceEdgeOverlay struct {
+	NodesBySpanID map[SpanID][]TraceEdgeOverlayNode
 }
 
-// NodesForSpan returns the critical-path overlay nodes that should attach to a
-// rendered span.
-func (cpo *CriticalPathOverlay) NodesForSpan(spanID SpanID) []CriticalPathOverlayNode {
-	if cpo == nil {
+// NodesForSpan returns overlay nodes that should attach to a rendered span.
+func (teo *TraceEdgeOverlay) NodesForSpan(spanID SpanID) []TraceEdgeOverlayNode {
+	if teo == nil {
 		return nil
 	}
-	return cpo.NodesBySpanID[spanID]
+	return teo.NodesBySpanID[spanID]
 }
+
+// CriticalPathOverlayNode is one trace-edge endpoint in a critical path
+// overlay, expressed in the generic render-time domain.
+type CriticalPathOverlayNode = TraceEdgeOverlayNode
+
+// CriticalPathOverlay is a render-time projection of a critical path into the
+// currently visible trace view.
+type CriticalPathOverlay = TraceEdgeOverlay
 
 // CriticalPathVisibility identifies render elements retained by the
 // show-only-critical-path display policy. The maps should include required
@@ -391,6 +415,16 @@ type CriticalPathOverlayAdapter[T any, CP, SP, DP fmt.Stringer] interface {
 		view RenderView,
 		path *criticalpath.Path[T, CP, SP, DP],
 	) (*CriticalPathOverlay, error)
+}
+
+// FocusDependencyOverlayAdapter is optionally implemented by typed adapters
+// that can project dependencies between focused spans into trace-edge nodes on
+// the focused trace view.
+type FocusDependencyOverlayAdapter[T any, CP, SP, DP fmt.Stringer] interface {
+	FocusDependencyOverlay(
+		ctx context.Context,
+		view RenderView,
+	) (*TraceEdgeOverlay, error)
 }
 
 // CriticalPathVisibilityAdapter is optionally implemented by typed adapters
@@ -534,6 +568,16 @@ func renderTypedTrace[T any, CP, SP, DP fmt.Stringer](
 					view.CriticalPathOverlay = overlay
 				}
 			}
+		}
+	}
+	if len(req.FocusSpanIDs) > 0 {
+		focusOverlayAdapter, ok := any(adapter).(FocusDependencyOverlayAdapter[T, CP, SP, DP])
+		if ok {
+			overlay, err := focusOverlayAdapter.FocusDependencyOverlay(ctx, view)
+			if err != nil {
+				return err
+			}
+			view.FocusDependencyOverlay = overlay
 		}
 	}
 	renderSettings := defaultTraceVizRenderSettings(req.TraceViewRangePx)
