@@ -28,7 +28,7 @@
     "build": "pnpm run build:core && pnpm run build:angular",
     "build:core": "pnpm --filter ./client/core run build",
     "build:angular": "pnpm --filter ./client/angular exec ng build",
-    "build:causal-tracing": "bazel build //causal_tracing/server:server && pnpm --filter ./causal_tracing/react-client run build",
+    "build:causal-tracing": "pnpm run build:core && bazel build //causal_tracing/server:server && pnpm --filter ./causal_tracing/react-client run build",
     "build:logviz": "pnpm --filter ./logviz/angular-client run build && pnpm --filter ./logviz/react-client run build",
 
     "test": "pnpm run test:core && pnpm run test:angular",

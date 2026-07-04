@@ -42,6 +42,9 @@ pnpm run build:causal-tracing
 pnpm run run:causal-tracing
 ```
 
+`build:causal-tracing` also builds the shared `@traceviz/client-core` package
+that the React client imports.
+
 The default scripts run with `--trace_root /`, which keeps root containment
 checking enabled while allowing whole-filesystem corpus paths. If the UI corpus
 path is empty, the backend uses `--default_trace_path`. To run the server target

@@ -116,6 +116,24 @@ func TestTraceQuery(t *testing.T) {
 			},
 		},
 		{
+			name:   "search finds nested numeric span name",
+			source: traceIDSource(traceyTrace1CorpusPath, "tracey-trace1"),
+			globalFilters: map[string]*util.V{
+				searchKey:        util.StringValue("**/3"),
+				expandMatchesKey: util.StringValue("true"),
+			},
+			queryName:  traceQuery,
+			seriesName: "trace",
+			options: map[string]*util.V{
+				traceViewWidthPxKey: util.IntegerValue(1200),
+			},
+			want: []string{
+				"Prop 'span_id': 's0.0.0/0/3'",
+				"Prop 'span_name': '3'",
+				"Prop 'primary_color': '#f97316'",
+			},
+		},
+		{
 			name:       "defaults to collapsed categories",
 			source:     traceIndexSource(composePostCorpusPath, 0),
 			queryName:  traceQuery,
