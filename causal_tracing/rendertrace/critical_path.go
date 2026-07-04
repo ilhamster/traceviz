@@ -10,6 +10,17 @@ import (
 	traceparser "github.com/ilhamster/tracey/trace/parser"
 )
 
+// ValidateCriticalPath confirms that the configured strategy and endpoints can
+// resolve to a critical path on the provided trace.
+func ValidateCriticalPath[T any, CP, SP, DP fmt.Stringer](
+	ctx context.Context,
+	tr trace.Trace[T, CP, SP, DP],
+	req RenderRequest,
+) error {
+	_, err := findCriticalPath(ctx, tr, req)
+	return err
+}
+
 // findCriticalPath computes the configured critical path for a render request.
 func findCriticalPath[T any, CP, SP, DP fmt.Stringer](
 	ctx context.Context,
@@ -32,25 +43,58 @@ func findCriticalPath[T any, CP, SP, DP fmt.Stringer](
 			strategy,
 		)
 	}
-	origin, err := criticalPathEndpoint(
-		ctx,
-		tr,
-		req.HierarchyType,
-		req.ResolvedCriticalPathStart(),
-		true,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("critical path start endpoint: %w", err)
+	var defaultOrigin trace.ElementarySpan[T, CP, SP, DP]
+	var defaultDestination trace.ElementarySpan[T, CP, SP, DP]
+	if strings.TrimSpace(req.ResolvedCriticalPathStart()) == DefaultCriticalPathStart ||
+		strings.TrimSpace(req.ResolvedCriticalPathEnd()) == DefaultCriticalPathEnd {
+		var err error
+		defaultOrigin, defaultDestination, err = defaultTemporalCriticalPathEndpointSpans(ctx, tr)
+		if err != nil {
+			return nil, err
+		}
 	}
-	destination, err := criticalPathEndpoint(
-		ctx,
-		tr,
-		req.HierarchyType,
-		req.ResolvedCriticalPathEnd(),
-		false,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("critical path end endpoint: %w", err)
+
+	var origin *criticalpath.Endpoint[T, CP, SP, DP]
+	if strings.TrimSpace(req.ResolvedCriticalPathStart()) == DefaultCriticalPathStart {
+		origin = criticalpath.EndpointFromElementarySpan(defaultOrigin, true)
+	} else {
+		var err error
+		origin, err = criticalPathEndpoint(
+			ctx,
+			tr,
+			req.HierarchyType,
+			req.ResolvedCriticalPathStart(),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("critical path start endpoint: %w", err)
+		}
+	}
+
+	var destination *criticalpath.Endpoint[T, CP, SP, DP]
+	if strings.TrimSpace(req.ResolvedCriticalPathEnd()) == DefaultCriticalPathEnd {
+		destination = criticalpath.EndpointFromElementarySpan(defaultDestination, false)
+	} else {
+		var err error
+		destination, err = criticalPathEndpoint(
+			ctx,
+			tr,
+			req.HierarchyType,
+			req.ResolvedCriticalPathEnd(),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("critical path end endpoint: %w", err)
+		}
+	}
+	if strategy == criticalpath.PreferTemporalMostWork {
+		if err := validateTemporalCriticalPathEndpoints(
+			tr,
+			origin,
+			destination,
+			req.ResolvedCriticalPathStart(),
+			req.ResolvedCriticalPathEnd(),
+		); err != nil {
+			return nil, err
+		}
 	}
 	return criticalpath.FindBetweenEndpoints(
 		tr,
@@ -60,13 +104,64 @@ func findCriticalPath[T any, CP, SP, DP fmt.Stringer](
 	)
 }
 
+func validateTemporalCriticalPathEndpoints[T any, CP, SP, DP fmt.Stringer](
+	tr trace.Trace[T, CP, SP, DP],
+	origin *criticalpath.Endpoint[T, CP, SP, DP],
+	destination *criticalpath.Endpoint[T, CP, SP, DP],
+	originSpecifier string,
+	destinationSpecifier string,
+) error {
+	comparator := tr.Comparator()
+	originElementarySpan := origin.ElementarySpan(comparator)
+	if originElementarySpan == nil {
+		return fmt.Errorf("critical path origin %q resolves to %s @%v, but that span is not running there",
+			originSpecifier, tr.DefaultNamer().SpanName(origin.Span), origin.At)
+	}
+	destinationElementarySpan := destination.ElementarySpan(comparator)
+	if destinationElementarySpan == nil {
+		return fmt.Errorf("critical path destination %q resolves to %s @%v, but that span is not running there",
+			destinationSpecifier, tr.DefaultNamer().SpanName(destination.Span), destination.At)
+	}
+	if originElementarySpan == destinationElementarySpan {
+		return fmt.Errorf(
+			"critical path endpoints resolve to the same elementary span %s (%v-%v): origin %q at %v, destination %q at %v; temporal critical paths require distinct ordered elementary spans",
+			tr.DefaultNamer().SpanName(originElementarySpan.Span()),
+			originElementarySpan.Start(),
+			originElementarySpan.End(),
+			originSpecifier,
+			origin.At,
+			destinationSpecifier,
+			destination.At,
+		)
+	}
+	if !comparator.LessOrEqual(originElementarySpan.End(), destinationElementarySpan.Start()) {
+		return fmt.Errorf(
+			"critical path origin %s (%v-%v from %q at %v) does not precede destination %s (%v-%v from %q at %v); temporal critical paths require the origin elementary span to end no later than the destination elementary span starts",
+			tr.DefaultNamer().SpanName(originElementarySpan.Span()),
+			originElementarySpan.Start(),
+			originElementarySpan.End(),
+			originSpecifier,
+			origin.At,
+			tr.DefaultNamer().SpanName(destinationElementarySpan.Span()),
+			destinationElementarySpan.Start(),
+			destinationElementarySpan.End(),
+			destinationSpecifier,
+			destination.At,
+		)
+	}
+	return nil
+}
+
 func usesDefaultCriticalPathEndpoints(req RenderRequest) bool {
 	return strings.TrimSpace(req.ResolvedCriticalPathStart()) == DefaultCriticalPathStart &&
 		strings.TrimSpace(req.ResolvedCriticalPathEnd()) == DefaultCriticalPathEnd
 }
 
-func criticalPathStrategy(strategyName string) (criticalpath.Strategy, error) {
-	typeData, err := criticalpath.CommonStrategies.ByName(strategyName)
+func criticalPathStrategy(strategySpecifier string) (criticalpath.Strategy, error) {
+	if typeData, err := criticalpath.CommonStrategies.ByName(strategySpecifier); err == nil {
+		return typeData.Type, nil
+	}
+	typeData, err := criticalpath.CommonStrategies.ByDescription(strategySpecifier)
 	if err != nil {
 		return 0, err
 	}
@@ -78,12 +173,11 @@ func criticalPathEndpoint[T any, CP, SP, DP fmt.Stringer](
 	tr trace.Trace[T, CP, SP, DP],
 	hierarchyType trace.HierarchyType,
 	specifier string,
-	isStart bool,
 ) (*criticalpath.Endpoint[T, CP, SP, DP], error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	normalizedSpecifier := normalizeCriticalPathEndpointSpecifier(specifier, isStart)
+	normalizedSpecifier := strings.TrimSpace(specifier)
 	positionPattern, err := traceparser.ParsePositionSpecifiers(hierarchyType, normalizedSpecifier)
 	if err != nil {
 		return nil, err
@@ -100,25 +194,6 @@ func criticalPathEndpoint[T any, CP, SP, DP fmt.Stringer](
 		return nil, fmt.Errorf("%d positions match %q; add earliest or latest to disambiguate", len(positions), specifier)
 	}
 	return criticalpath.EndpointFromElementarySpanPosition(positions[0]), nil
-}
-
-func normalizeCriticalPathEndpointSpecifier(specifier string, isStart bool) string {
-	trimmed := strings.TrimSpace(specifier)
-	if trimmed == "" {
-		if isStart {
-			trimmed = DefaultCriticalPathStart
-		} else {
-			trimmed = DefaultCriticalPathEnd
-		}
-	}
-	switch strings.ToLower(trimmed) {
-	case "** earliest":
-		return "** @ 0% earliest"
-	case "** latest":
-		return "** @ 100% latest"
-	default:
-		return trimmed
-	}
 }
 
 func defaultTemporalCriticalPathEndpointSpans[T any, CP, SP, DP fmt.Stringer](

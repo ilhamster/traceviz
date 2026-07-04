@@ -31,24 +31,6 @@ type CategoryID string
 // SpanID is a stable identifier for a Tracey span.
 type SpanID string
 
-// StackType identifies a policy for constructing explanatory ancestry stacks.
-//
-// Stack types are intentionally independent from trace.HierarchyType. A stack
-// policy may be based on a category hierarchy, but it may also combine span
-// parents, synthetic category frames, RPC boundaries, process/thread frames, or
-// other trace-format-specific context needed by views such as the overtime
-// critical path.
-type StackType string
-
-// StackTypes specifies the stack-construction policies supported by a
-// renderable trace.
-type StackTypes = trace.TypeEnumeration[StackType]
-
-// NewStackTypes creates and returns a new, empty StackTypes instance.
-func NewStackTypes() *StackTypes {
-	return trace.NewTypeEnumeration[StackType]()
-}
-
 // RenderNamer names and formats non-generic rendered trace elements.
 type RenderNamer interface {
 	// MomentString returns a human-facing representation of a render-time
@@ -75,9 +57,6 @@ const (
 	DisplayAll DisplayMode = "all"
 	// DisplayOnlyMatches renders search matches plus required ancestry.
 	DisplayOnlyMatches DisplayMode = "matches"
-	// DisplayOnlyCriticalPath renders only the current critical path plus
-	// required ancestry. This is intended for the critical-path follow-on.
-	DisplayOnlyCriticalPath DisplayMode = "critical_path"
 )
 
 // RenderRequest contains all semantic view state needed to render a trace.
@@ -90,12 +69,9 @@ type RenderRequest struct {
 	// TraceID selects the loaded trace to render.
 	TraceID TraceID
 	// HierarchyType selects the category hierarchy used by the main trace
-	// view.
+	// view. Secondary stack views, such as the overtime critical path, use the
+	// same hierarchy for their synthetic category frames.
 	HierarchyType trace.HierarchyType
-	// CriticalPathStackType selects the ancestry stack policy used by
-	// critical-path views. The zero value means the trace's default stack
-	// policy.
-	CriticalPathStackType StackType
 	// CriticalPathStart is the user-facing trace position specifier used as the
 	// current critical path origin. Empty means DefaultCriticalPathStart.
 	CriticalPathStart string
@@ -117,8 +93,14 @@ type RenderRequest struct {
 	// HideEmptyCategories asks the renderer to omit categories with no visible
 	// content under the current temporal domain and display mode.
 	HideEmptyCategories bool
-	// DisplayMode controls coarse filtering such as normal rendering,
-	// match-only rendering, or critical-path-only rendering.
+	// ShowOnlyCriticalPath asks the renderer to omit spans and categories that
+	// do not lie on, or contain, the current critical path. Required ancestry is
+	// retained so matching critical-path work remains locatable.
+	ShowOnlyCriticalPath bool
+	// DisplayMode controls coarse filtering such as normal rendering or
+	// match-only rendering. Critical-path-only rendering is controlled by
+	// ShowOnlyCriticalPath because it also requires critical-path endpoint and
+	// strategy state.
 	DisplayMode DisplayMode
 	// FocusSpanIDs contains the selected span stack for a focused-span view.
 	// The head of the stack is the first element. Implementations should render
@@ -158,17 +140,19 @@ type RenderView struct {
 	// path overlay, keyed by the rendered span ID to which they should attach.
 	// Nil means no overlay should be rendered.
 	CriticalPathOverlay *CriticalPathOverlay
+	// CriticalPathVisibility identifies the spans and categories that should
+	// remain visible when Request.ShowOnlyCriticalPath is enabled. Nil means no
+	// critical-path visibility filter has been computed.
+	CriticalPathVisibility *CriticalPathVisibility
 }
 
 const (
 	// DefaultCriticalPathStart is the default critical-path origin control
-	// value. It is normalized into Tracey's full position-specifier syntax when
-	// constructing a path.
-	DefaultCriticalPathStart = "** earliest"
+	// value. Empty means the renderer chooses a trace-wide default endpoint.
+	DefaultCriticalPathStart = ""
 	// DefaultCriticalPathEnd is the default critical-path destination control
-	// value. It is normalized into Tracey's full position-specifier syntax when
-	// constructing a path.
-	DefaultCriticalPathEnd = "** latest"
+	// value. Empty means the renderer chooses a trace-wide default endpoint.
+	DefaultCriticalPathEnd = ""
 	// DefaultCriticalPathStrategy is the default Tracey critical-path strategy
 	// used by the causal tracing tool while causality coverage is incomplete.
 	DefaultCriticalPathStrategy = "temporal_most_work"
@@ -211,6 +195,10 @@ type SearchResult struct {
 	// matched category or span below them. Renderers can use this for breadcrumb
 	// chips and force-expansion without treating the ancestor as a direct match.
 	CategoriesWithDescendantMatch map[CategoryID]struct{}
+	// SpansWithDescendantMatch are spans that contain at least one matched
+	// descendant span. Renderers can use this to retain required span ancestry
+	// without recursively searching the span tree at render time.
+	SpansWithDescendantMatch map[SpanID]struct{}
 }
 
 // TraceVizCategoryParent is implemented by TraceViz trace and category
@@ -297,6 +285,34 @@ func (cpo *CriticalPathOverlay) NodesForSpan(spanID SpanID) []CriticalPathOverla
 	return cpo.NodesBySpanID[spanID]
 }
 
+// CriticalPathVisibility identifies render elements retained by the
+// show-only-critical-path display policy. The maps should include required
+// ancestry, not only direct critical-path leaves.
+type CriticalPathVisibility struct {
+	Categories map[CategoryID]struct{}
+	Spans      map[SpanID]struct{}
+}
+
+// ContainsCategory returns whether the category should remain visible under
+// the critical-path visibility filter.
+func (cpv *CriticalPathVisibility) ContainsCategory(categoryID CategoryID) bool {
+	if cpv == nil {
+		return false
+	}
+	_, ok := cpv.Categories[categoryID]
+	return ok
+}
+
+// ContainsSpan returns whether the span should remain visible under the
+// critical-path visibility filter.
+func (cpv *CriticalPathVisibility) ContainsSpan(spanID SpanID) bool {
+	if cpv == nil {
+		return false
+	}
+	_, ok := cpv.Spans[spanID]
+	return ok
+}
+
 // RenderableTrace is the runtime-facing, non-generic interface consumed by the
 // causal tracing tool.
 //
@@ -313,9 +329,6 @@ type RenderableTrace interface {
 	TimeRange() TimeRange
 	// HierarchyTypes returns the category hierarchies this trace can render.
 	HierarchyTypes() *trace.HierarchyTypes
-	// StackTypes returns the stack-construction policies this trace can render
-	// in views such as the overtime critical path.
-	StackTypes() *StackTypes
 	// Search evaluates a user search string and returns matching category and
 	// span IDs. Empty searches should return an empty result, not all items.
 	Search(ctx context.Context, hierarchy trace.HierarchyType, query string, temporalDomain TimeRange) (*SearchResult, error)
@@ -350,9 +363,6 @@ type TypedTraceAdapter[T any, CP, SP, DP fmt.Stringer] interface {
 	TimeRange() TimeRange
 	// Namer returns the Tracey namer used for paths and search.
 	Namer() trace.Namer[T, CP, SP, DP]
-	// StackTypes returns the supported policies for constructing explanatory
-	// stacks in secondary trace views such as the overtime critical path.
-	StackTypes() *StackTypes
 	// Search evaluates a user search string and returns matching category and
 	// span IDs. Empty searches should return an empty result, not all items.
 	Search(ctx context.Context, hierarchy trace.HierarchyType, query string, temporalDomain TimeRange) (*SearchResult, error)
@@ -381,6 +391,17 @@ type CriticalPathOverlayAdapter[T any, CP, SP, DP fmt.Stringer] interface {
 		view RenderView,
 		path *criticalpath.Path[T, CP, SP, DP],
 	) (*CriticalPathOverlay, error)
+}
+
+// CriticalPathVisibilityAdapter is optionally implemented by typed adapters
+// that can identify the spans and categories retained by
+// RenderRequest.ShowOnlyCriticalPath.
+type CriticalPathVisibilityAdapter[T any, CP, SP, DP fmt.Stringer] interface {
+	CriticalPathVisibility(
+		ctx context.Context,
+		view RenderView,
+		path *criticalpath.Path[T, CP, SP, DP],
+	) (*CriticalPathVisibility, error)
 }
 
 // TraceVizRenderSettings returns the TraceViz trace render settings to attach
@@ -417,10 +438,6 @@ func (trt *typedRenderableTrace[T, CP, SP, DP]) TimeRange() TimeRange {
 
 func (trt *typedRenderableTrace[T, CP, SP, DP]) HierarchyTypes() *trace.HierarchyTypes {
 	return trt.adapter.Namer().HierarchyTypes()
-}
-
-func (trt *typedRenderableTrace[T, CP, SP, DP]) StackTypes() *StackTypes {
-	return trt.adapter.StackTypes()
 }
 
 func (trt *typedRenderableTrace[T, CP, SP, DP]) MomentString(moment time.Duration) string {
@@ -488,16 +505,36 @@ func renderTypedTrace[T any, CP, SP, DP fmt.Stringer](
 		TemporalAxis:   axis,
 		SearchResult:   searchResult,
 	}
-	if overlayAdapter, ok := any(adapter).(CriticalPathOverlayAdapter[T, CP, SP, DP]); ok && len(req.FocusSpanIDs) == 0 {
+	_, wantsOverlay := any(adapter).(CriticalPathOverlayAdapter[T, CP, SP, DP])
+	if len(req.FocusSpanIDs) == 0 && (wantsOverlay || req.ShowOnlyCriticalPath) {
 		path, err := findCriticalPath(ctx, adapter.Trace(), req)
 		if err != nil {
-			return err
+			if ctx.Err() != nil || req.ShowOnlyCriticalPath {
+				return err
+			}
+		} else {
+			if req.ShowOnlyCriticalPath {
+				visibilityAdapter, ok := any(adapter).(CriticalPathVisibilityAdapter[T, CP, SP, DP])
+				if !ok {
+					return fmt.Errorf("trace %q does not support critical path visibility filtering", adapter.DisplayName())
+				}
+				visibility, err := visibilityAdapter.CriticalPathVisibility(ctx, view, path)
+				if err != nil {
+					return err
+				}
+				view.CriticalPathVisibility = visibility
+			}
+			overlayAdapter, ok := any(adapter).(CriticalPathOverlayAdapter[T, CP, SP, DP])
+			if ok {
+				overlay, err := overlayAdapter.CriticalPathOverlay(ctx, view, path)
+				if err != nil && ctx.Err() != nil {
+					return err
+				}
+				if err == nil {
+					view.CriticalPathOverlay = overlay
+				}
+			}
 		}
-		overlay, err := overlayAdapter.CriticalPathOverlay(ctx, view, path)
-		if err != nil {
-			return err
-		}
-		view.CriticalPathOverlay = overlay
 	}
 	renderSettings := defaultTraceVizRenderSettings(req.TraceViewRangePx)
 	if settingsProvider, ok := any(adapter).(TraceVizRenderSettings); ok {
@@ -623,7 +660,7 @@ func defaultTraceVizRenderSettings(traceViewRangePx int) *tvtrace.RenderSettings
 	}
 	return &tvtrace.RenderSettings{
 		SpanWidthCatPx:   18,
-		SpanPaddingCatPx: 2,
+		SpanPaddingCatPx: 0,
 		CategoryAxisRenderSettings: &categoryaxis.RenderSettings{
 			CategoryHeaderCatPx:    22,
 			CategoryHandleValPx:    10,

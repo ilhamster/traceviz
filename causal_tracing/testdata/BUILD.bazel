@@ -1,6 +1,7 @@
 exports_files([
     "causaltraces-schema.json",
     "compose-post-ct-logs.json",
+    "tracey-trace1-ct-logs.json",
 ])
 
 filegroup(
@@ -9,3 +10,8 @@ filegroup(
     visibility = ["//visibility:public"],
 )
 
+filegroup(
+    name = "tracey_trace1_ct_logs",
+    srcs = ["tracey-trace1-ct-logs.json"],
+    visibility = ["//visibility:public"],
+)

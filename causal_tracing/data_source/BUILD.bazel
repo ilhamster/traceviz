@@ -12,14 +12,26 @@ go_library(
         "//server/go/table",
         "//server/go/util",
         "@com_github_hashicorp_golang_lru//simplelru:go_default_library",
+        "@tracey//critical_path",
+        "@tracey//trace",
         "@tracey//trace/parser",
     ],
 )
 
 go_test(
     name = "data_source_test",
-    srcs = ["data_source_test.go"],
-    data = ["//causal_tracing/testdata:compose_post_ct_logs"],
+    srcs = [
+        "critical_path_query_test.go",
+        "data_source_test.go",
+        "span_causality_query_test.go",
+        "trace_query_test.go",
+        "trace_status_query_test.go",
+        "validation_query_test.go",
+    ],
+    data = [
+        "//causal_tracing/testdata:compose_post_ct_logs",
+        "//causal_tracing/testdata:tracey_trace1_ct_logs",
+    ],
     embed = [":data_source"],
     deps = [
         "//causal_tracing/rendertrace",

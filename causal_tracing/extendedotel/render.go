@@ -6,6 +6,7 @@ import (
 	"hash/fnv"
 	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/ilhamster/traceviz/causal_tracing/concurrency"
@@ -59,13 +60,8 @@ func (t *Trace) TimeRange() rendertrace.TimeRange {
 	return ret
 }
 
-// StackTypes returns the stack policies this trace can render. None are
-// supported yet.
-func (t *Trace) StackTypes() *rendertrace.StackTypes {
-	return rendertrace.NewStackTypes()
-}
-
-// Search evaluates a render search. Search rendering is not implemented yet.
+// Search evaluates a render search over spans and categories in the selected
+// hierarchy and visible time range.
 func (t *Trace) Search(
 	ctx context.Context,
 	hierarchy trace.HierarchyType,
@@ -79,6 +75,7 @@ func (t *Trace) Search(
 		Categories:                    map[rendertrace.CategoryID]struct{}{},
 		Spans:                         map[rendertrace.SpanID]struct{}{},
 		CategoriesWithDescendantMatch: map[rendertrace.CategoryID]struct{}{},
+		SpansWithDescendantMatch:      map[rendertrace.SpanID]struct{}{},
 	}
 	if query == "" {
 		return ret, nil
@@ -103,6 +100,7 @@ func (t *Trace) Search(
 			t.namer,
 		)
 		ret.Spans[spanID] = struct{}{}
+		markSpanAncestors(ret, span, t.namer)
 		markSpanCategoryAncestors(ret, span.RootSpan().ParentCategory(hierarchy), t.namer)
 	}
 	categoryFinder, err := traceparser.NewSpanFinder(spanPattern, t.trace)
@@ -124,6 +122,7 @@ func (t *Trace) Search(
 		Categories:                    ret.Categories,
 		Spans:                         ret.Spans,
 		CategoriesWithDescendantMatch: ret.CategoriesWithDescendantMatch,
+		SpansWithDescendantMatch:      ret.SpansWithDescendantMatch,
 	}, nil
 }
 
@@ -137,7 +136,7 @@ func (t *Trace) RootCategories(
 	}
 	var ret []rendertrace.CategoryView
 	for _, category := range t.trace.RootCategories(view.Request.HierarchyType) {
-		if !categorySubtreeContainsFocusedSpan(category, view) {
+		if !categoryVisible(category, view, t.namer) {
 			continue
 		}
 		ret = append(ret, categoryView{
@@ -166,8 +165,9 @@ func (t *Trace) CriticalPathRootCategories(
 		return nil, nil
 	}
 	return []rendertrace.CategoryView{criticalPathCategoryView{
-		path:  path,
-		namer: t.namer,
+		path:      path,
+		hierarchy: view.Request.HierarchyType,
+		namer:     t.namer,
 	}}, nil
 }
 
@@ -236,6 +236,32 @@ func (t *Trace) CriticalPathOverlay(
 	return overlay, nil
 }
 
+// CriticalPathVisibility identifies the spans and categories that should remain
+// visible when the main trace is filtered to the current critical path.
+func (t *Trace) CriticalPathVisibility(
+	ctx context.Context,
+	view rendertrace.RenderView,
+	path *criticalpath.Path[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
+) (*rendertrace.CriticalPathVisibility, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	visibility := &rendertrace.CriticalPathVisibility{
+		Categories: map[rendertrace.CategoryID]struct{}{},
+		Spans:      map[rendertrace.SpanID]struct{}{},
+	}
+	if path == nil {
+		return visibility, nil
+	}
+	for _, element := range path.CriticalPath {
+		if element.End() <= view.TemporalDomain.Start || element.Start() >= view.TemporalDomain.End {
+			continue
+		}
+		markCriticalPathSpanVisibility(visibility, element.Span(), view.Request.HierarchyType, t.namer)
+	}
+	return visibility, nil
+}
+
 type criticalPathOverlayElement struct {
 	spanID   rendertrace.SpanID
 	sequence int
@@ -255,7 +281,7 @@ func (t *Trace) criticalPathDisplaySpanID(
 		if (categoryView{category: category, namer: t.namer}).categoryIsOpen(view) {
 			continue
 		}
-		if syntheticID, ok := syntheticServiceSpanID(category); ok {
+		if syntheticID, ok := syntheticCategorySpanID(category); ok {
 			return syntheticID, true
 		}
 		return "", false
@@ -263,17 +289,41 @@ func (t *Trace) criticalPathDisplaySpanID(
 	return spanView{span: span, namer: t.namer}.ID(), true
 }
 
-func syntheticServiceSpanID(
+func syntheticCategorySpanID(
 	category trace.Category[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
 ) (rendertrace.SpanID, bool) {
 	payload := category.Payload()
 	if payload == nil ||
-		payload.HierarchyType != ServiceHierarchyType ||
-		category.Parent() != nil ||
 		payload.ID == "" {
 		return "", false
 	}
-	return rendertrace.SpanID("synthetic-service:" + payload.ID), true
+	return rendertrace.SpanID("synthetic-category:" + payload.ID), true
+}
+
+func markCriticalPathSpanVisibility(
+	visibility *rendertrace.CriticalPathVisibility,
+	span trace.Span[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
+	hierarchy trace.HierarchyType,
+	namer *Namer,
+) {
+	for cursor := span; cursor != nil; cursor = cursor.ParentSpan() {
+		spanID := rendertrace.DefaultSpanID[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload](
+			cursor,
+			namer,
+		)
+		visibility.Spans[spanID] = struct{}{}
+	}
+	rootSpan := span.RootSpan()
+	if rootSpan == nil {
+		return
+	}
+	for category := rootSpan.ParentCategory(hierarchy); category != nil; category = category.Parent() {
+		categoryID := rendertrace.DefaultCategoryID[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload](
+			category,
+			namer,
+		)
+		visibility.Categories[categoryID] = struct{}{}
+	}
 }
 
 type categoryView struct {
@@ -301,7 +351,7 @@ func (cv categoryView) ChildCategories(
 		return ret, nil
 	}
 	for _, child := range cv.category.ChildCategories() {
-		if !categorySubtreeContainsFocusedSpan(child, view) {
+		if !categoryVisible(child, view, cv.namer) {
 			continue
 		}
 		ret = append(ret, categoryView{
@@ -325,13 +375,13 @@ func (cv categoryView) RootSpans(
 	}
 	var ret []rendertrace.SpanView
 	if !cv.categoryIsOpen(view) {
-		if synthetic := cv.syntheticServiceSpan(view); synthetic != nil {
+		if synthetic := cv.syntheticCategorySpan(view); synthetic != nil {
 			ret = append(ret, synthetic)
 		}
 		return ret, nil
 	}
 	for _, rootSpan := range cv.category.RootSpans() {
-		if !spanSubtreeContainsFocusedSpan(rootSpan, view) {
+		if !spanVisible(rootSpan, view, cv.namer) {
 			continue
 		}
 		ret = append(ret, spanView{
@@ -350,14 +400,12 @@ func (cv categoryView) RootSpans(
 	return ret, nil
 }
 
-func (cv categoryView) syntheticServiceSpan(view rendertrace.RenderView) rendertrace.SpanView {
+func (cv categoryView) syntheticCategorySpan(view rendertrace.RenderView) rendertrace.SpanView {
 	if len(view.Request.FocusSpanIDs) > 0 {
 		return nil
 	}
 	payload := cv.category.Payload()
 	if payload == nil ||
-		payload.HierarchyType != ServiceHierarchyType ||
-		cv.category.Parent() != nil ||
 		payload.ID == "" {
 		return nil
 	}
@@ -447,8 +495,9 @@ type spanView struct {
 }
 
 type criticalPathCategoryView struct {
-	path  *criticalpath.Path[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload]
-	namer *Namer
+	path      *criticalpath.Path[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload]
+	hierarchy trace.HierarchyType
+	namer     *Namer
 }
 
 func (cv criticalPathCategoryView) ID() rendertrace.CategoryID {
@@ -472,22 +521,15 @@ func (cv criticalPathCategoryView) RootSpans(
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	ret := make([]rendertrace.SpanView, 0, len(cv.path.CriticalPath))
-	for idx, element := range cv.path.CriticalPath {
-		if element.End() <= view.TemporalDomain.Start || element.Start() >= view.TemporalDomain.End {
-			continue
-		}
-		start := maxDuration(element.Start(), view.TemporalDomain.Start)
-		end := minDuration(element.End(), view.TemporalDomain.End)
-		if end <= start {
+	nodes := buildCriticalPathFrameTree(cv.path, cv.hierarchy, cv.namer)
+	ret := make([]rendertrace.SpanView, 0, len(nodes))
+	for _, node := range nodes {
+		if !criticalPathNodeVisible(node, view.TemporalDomain) {
 			continue
 		}
 		ret = append(ret, criticalPathFrameSpanView{
-			element:  element,
-			sequence: idx,
-			start:    start,
-			end:      end,
-			namer:    cv.namer,
+			node:  node,
+			namer: cv.namer,
 		})
 	}
 	return ret, nil
@@ -516,20 +558,51 @@ func (cv criticalPathCategoryView) RenderTraceVizCategory(
 	), nil
 }
 
+type criticalPathFrameKind string
+
+const (
+	criticalPathCategoryFrameKind criticalPathFrameKind = "critical_path_category_frame"
+	criticalPathLeafFrameKind     criticalPathFrameKind = "critical_path_leaf"
+)
+
+type criticalPathFrame struct {
+	key             string
+	kind            criticalPathFrameKind
+	span            trace.Span[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload]
+	category        trace.Category[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload]
+	serviceName     string
+	name            string
+	payload         *SpanPayload
+	categoryPayload *CategoryPayload
+}
+
+type criticalPathFrameNode struct {
+	frame         criticalPathFrame
+	start         time.Duration
+	end           time.Duration
+	firstSequence int
+	lastSequence  int
+	parent        *criticalPathFrameNode
+	children      []*criticalPathFrameNode
+	gaps          []criticalPathNoLongerRunningGap
+}
+
+type criticalPathNoLongerRunningGap struct {
+	start time.Duration
+	end   time.Duration
+}
+
 type criticalPathFrameSpanView struct {
-	element  criticalpath.PathElement[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload]
-	sequence int
-	start    time.Duration
-	end      time.Duration
-	namer    *Namer
+	node  *criticalPathFrameNode
+	namer *Namer
 }
 
 func (sv criticalPathFrameSpanView) ID() rendertrace.SpanID {
-	return rendertrace.SpanID(fmt.Sprintf("critical-path:frame:%d:%s", sv.sequence, sv.spanID()))
+	return sv.node.id()
 }
 
 func (sv criticalPathFrameSpanView) TimeRange() rendertrace.TimeRange {
-	return rendertrace.TimeRange{Start: sv.start, End: sv.end}
+	return rendertrace.TimeRange{Start: sv.node.start, End: sv.node.end}
 }
 
 func (sv criticalPathFrameSpanView) ChildSpans(
@@ -539,7 +612,17 @@ func (sv criticalPathFrameSpanView) ChildSpans(
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return []rendertrace.SpanView{criticalPathLeafSpanView(sv)}, nil
+	ret := make([]rendertrace.SpanView, 0, len(sv.node.children))
+	for _, child := range sv.node.children {
+		if !criticalPathNodeVisible(child, view.TemporalDomain) {
+			continue
+		}
+		ret = append(ret, criticalPathFrameSpanView{
+			node:  child,
+			namer: sv.namer,
+		})
+	}
+	return ret, nil
 }
 
 func (sv criticalPathFrameSpanView) RenderTraceVizSpan(
@@ -550,31 +633,43 @@ func (sv criticalPathFrameSpanView) RenderTraceVizSpan(
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	payload := sv.payload()
-	serviceName := payload.ServiceName
-	if serviceName == "" {
-		serviceName = "unknown service"
+	if sv.node.frame.kind == criticalPathLeafFrameKind {
+		return sv.renderLeafTraceVizSpan(view, parent)
 	}
+	categoryPayload := sv.node.frame.categoryPayload
+	if categoryPayload == nil {
+		categoryPayload = &CategoryPayload{}
+	}
+	name := categoryPayload.Name
+	if name == "" {
+		name = sv.node.frame.name
+	}
+	if name == "" {
+		name = "category"
+	}
+	serviceName := categoryPayload.ServiceName
 	serviceColor := serviceColor(serviceName)
+	start, end := sv.clippedRange(view.TemporalDomain)
 	return parent.Span(
-		sv.start,
-		sv.end,
+		start,
+		end,
 		label.Format("$(span_name)"),
 		color.Primary(serviceColor),
 		color.Secondary(serviceColor),
 		color.Stroke("#202124"),
-		util.StringProperty("span_kind", "critical_path_service_frame"),
-		util.StringProperty("span_id", payload.SpanID),
-		util.StringProperty("span_name", serviceName),
+		util.StringProperty("span_kind", string(criticalPathCategoryFrameKind)),
+		util.StringProperty("span_name", name),
+		util.StringProperty("category_name", name),
+		util.StringProperty("category_id", categoryPayload.ID),
 		util.StringProperty("service_name", serviceName),
-		util.StringProperty("operation_name", payload.OperationName),
 		util.StringProperty("critical_path_strategy", view.Request.ResolvedCriticalPathStrategy()),
-		util.IntegerProperty("critical_path_sequence", int64(sv.sequence)),
+		util.IntegerProperty("critical_path_first_sequence", int64(sv.node.firstSequence)),
+		util.IntegerProperty("critical_path_last_sequence", int64(sv.node.lastSequence)),
 	), nil
 }
 
 func (sv criticalPathFrameSpanView) payload() *SpanPayload {
-	payload := sv.element.Span().Payload()
+	payload := sv.node.frame.payload
 	if payload == nil {
 		return &SpanPayload{}
 	}
@@ -586,65 +681,265 @@ func (sv criticalPathFrameSpanView) spanID() string {
 	if payload.SpanID != "" {
 		return payload.SpanID
 	}
-	return sv.namer.SpanName(sv.element.Span())
-}
-
-type criticalPathLeafSpanView criticalPathFrameSpanView
-
-func (sv criticalPathLeafSpanView) ID() rendertrace.SpanID {
-	return rendertrace.SpanID(fmt.Sprintf("critical-path:leaf:%d:%s", sv.sequence, sv.spanID()))
-}
-
-func (sv criticalPathLeafSpanView) TimeRange() rendertrace.TimeRange {
-	return rendertrace.TimeRange{Start: sv.start, End: sv.end}
-}
-
-func (sv criticalPathLeafSpanView) ChildSpans(
-	ctx context.Context,
-	view rendertrace.RenderView,
-) ([]rendertrace.SpanView, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
+	if sv.node.frame.span != nil {
+		return sv.namer.SpanName(sv.node.frame.span)
 	}
-	return nil, nil
+	return string(sv.ID())
 }
 
-func (sv criticalPathLeafSpanView) RenderTraceVizSpan(
-	ctx context.Context,
+func (sv criticalPathFrameSpanView) renderLeafTraceVizSpan(
 	view rendertrace.RenderView,
 	parent rendertrace.TraceVizSpanParent,
 ) (*tvtrace.Span[time.Duration], error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
 	payload := sv.payload()
 	labelText := payload.OperationName
 	if labelText == "" {
 		labelText = sv.spanID()
 	}
-	return parent.Span(
-		sv.start,
-		sv.end,
+	start, end := sv.clippedRange(view.TemporalDomain)
+	renderedSpan := parent.Span(
+		start,
+		end,
 		label.Format("$(span_name)"),
 		color.Primary(realSpanColor),
 		color.Secondary(realSpanColor),
 		color.Stroke("#202124"),
-		util.StringProperty("span_kind", "critical_path_leaf"),
+		util.StringProperty("span_kind", string(criticalPathLeafFrameKind)),
 		util.StringProperty("span_id", payload.SpanID),
 		util.StringProperty("span_name", labelText),
 		util.StringProperty("service_name", payload.ServiceName),
 		util.StringProperty("operation_name", payload.OperationName),
 		util.StringProperty("critical_path_strategy", view.Request.ResolvedCriticalPathStrategy()),
-		util.IntegerProperty("critical_path_sequence", int64(sv.sequence)),
-	), nil
+		util.IntegerProperty("critical_path_first_sequence", int64(sv.node.firstSequence)),
+		util.IntegerProperty("critical_path_last_sequence", int64(sv.node.lastSequence)),
+	)
+	if sv.node.frame.span == nil {
+		return renderedSpan, nil
+	}
+	clipDomain := rendertrace.TimeRange{Start: start, End: end}
+	for _, suspend := range renderableSuspendIntervalsInDomain(sv.node.frame.span, view, clipDomain) {
+		suspendTooltipLines := append(
+			[]string{labelText, "Kind: critical_path_suspend"},
+			spanIdentityTooltipLines(labelText, payload)[1:]...,
+		)
+		suspendTooltipLines = append(suspendTooltipLines, durationTooltipLine(suspend.Start, suspend.End))
+		renderedSpan.Subspan(
+			suspend.Start,
+			suspend.End,
+			color.Primary("rgba(128, 128, 128, 0.48)"),
+			color.Secondary("rgba(128, 128, 128, 0.48)"),
+			color.Stroke("#202124"),
+			util.StringProperty("subspan_kind", "critical_path_suspend"),
+			util.StringProperty("span_id", payload.SpanID),
+			util.StringProperty("span_name", labelText),
+			util.StringProperty("service_name", payload.ServiceName),
+			util.StringProperty("operation_name", payload.OperationName),
+			util.StringProperty("tooltip", tooltipText(suspendTooltipLines...)),
+		)
+	}
+	for _, gap := range sv.node.gaps {
+		gapStart := maxDuration(gap.start, start)
+		gapEnd := minDuration(gap.end, end)
+		if gapEnd <= gapStart {
+			continue
+		}
+		gapTooltip := tooltipText(
+			labelText,
+			"Kind: critical_path_gap",
+			fmt.Sprintf("Span %s no longer running", labelText),
+			durationTooltipLine(gapStart, gapEnd),
+		)
+		renderedSpan.Subspan(
+			gapStart,
+			gapEnd,
+			color.Primary("rgba(70, 70, 70, 0.58)"),
+			color.Secondary("rgba(70, 70, 70, 0.58)"),
+			color.Stroke("#202124"),
+			util.StringProperty("subspan_kind", "critical_path_no_longer_running"),
+			util.StringProperty("span_id", payload.SpanID),
+			util.StringProperty("span_name", labelText),
+			util.StringProperty("service_name", payload.ServiceName),
+			util.StringProperty("operation_name", payload.OperationName),
+			util.StringProperty("tooltip", gapTooltip),
+		)
+	}
+	return renderedSpan, nil
 }
 
-func (sv criticalPathLeafSpanView) payload() *SpanPayload {
-	return criticalPathFrameSpanView(sv).payload()
+func (sv criticalPathFrameSpanView) clippedRange(domain rendertrace.TimeRange) (time.Duration, time.Duration) {
+	return maxDuration(sv.node.start, domain.Start), minDuration(sv.node.end, domain.End)
 }
 
-func (sv criticalPathLeafSpanView) spanID() string {
-	return criticalPathFrameSpanView(sv).spanID()
+func (node *criticalPathFrameNode) id() rendertrace.SpanID {
+	return rendertrace.SpanID(fmt.Sprintf(
+		"critical-path:%s:%d:%s",
+		node.frame.kind,
+		node.firstSequence,
+		node.frame.key,
+	))
+}
+
+func buildCriticalPathFrameTree(
+	path *criticalpath.Path[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
+	hierarchy trace.HierarchyType,
+	namer *Namer,
+) []*criticalPathFrameNode {
+	var roots []*criticalPathFrameNode
+	var active []*criticalPathFrameNode
+	for idx, element := range path.CriticalPath {
+		start := element.Start()
+		end := element.End()
+		if end <= start {
+			continue
+		}
+		displayEnd := end
+		nextElementStart := time.Duration(0)
+		hasGapToNext := false
+		if idx+1 < len(path.CriticalPath) {
+			nextElementStart = path.CriticalPath[idx+1].Start()
+			hasGapToNext = nextElementStart > end
+			if hasGapToNext {
+				displayEnd = nextElementStart
+			}
+		}
+		frames := criticalPathFrames(element, hierarchy, namer)
+		active = resizeCriticalPathActiveFrames(active, len(frames))
+		for depth, frame := range frames {
+			var parent *criticalPathFrameNode
+			if depth > 0 {
+				parent = active[depth-1]
+			}
+			node := active[depth]
+			if node == nil ||
+				node.parent != parent ||
+				node.frame.key != frame.key ||
+				node.frame.kind != frame.kind ||
+				node.end != start {
+				node = &criticalPathFrameNode{
+					frame:         frame,
+					start:         start,
+					end:           displayEnd,
+					firstSequence: idx,
+					lastSequence:  idx,
+					parent:        parent,
+				}
+				if parent == nil {
+					roots = append(roots, node)
+				} else {
+					parent.children = append(parent.children, node)
+				}
+			} else {
+				node.end = displayEnd
+				node.lastSequence = idx
+			}
+			active[depth] = node
+		}
+		if hasGapToNext && !sameCriticalPathSpan(element.Span(), path.CriticalPath[idx+1].Span(), namer) {
+			leafNode := active[len(active)-1]
+			leafNode.gaps = append(leafNode.gaps, criticalPathNoLongerRunningGap{
+				start: end,
+				end:   nextElementStart,
+			})
+		}
+	}
+	return roots
+}
+
+func resizeCriticalPathActiveFrames(active []*criticalPathFrameNode, length int) []*criticalPathFrameNode {
+	if len(active) >= length {
+		return active[:length]
+	}
+	for len(active) < length {
+		active = append(active, nil)
+	}
+	return active
+}
+
+func criticalPathFrames(
+	element criticalpath.PathElement[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
+	hierarchy trace.HierarchyType,
+	namer *Namer,
+) []criticalPathFrame {
+	span := element.Span()
+	if span == nil {
+		return nil
+	}
+	var ret []criticalPathFrame
+	rootSpan := span.RootSpan()
+	if rootSpan != nil {
+		var categories []trace.Category[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload]
+		for category := rootSpan.ParentCategory(hierarchy); category != nil; category = category.Parent() {
+			categories = append(categories, category)
+		}
+		for idx := len(categories) - 1; idx >= 0; idx-- {
+			category := categories[idx]
+			payload := category.Payload()
+			if payload == nil {
+				payload = &CategoryPayload{}
+			}
+			name := payload.Name
+			if name == "" {
+				name = namer.CategoryName(category)
+			}
+			ret = append(ret, criticalPathFrame{
+				key:             "category:" + string(rendertrace.DefaultCategoryID[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload](category, namer)),
+				kind:            criticalPathCategoryFrameKind,
+				category:        category,
+				serviceName:     payload.ServiceName,
+				name:            name,
+				categoryPayload: payload,
+			})
+		}
+	}
+
+	var spans []trace.Span[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload]
+	for cursor := span; cursor != nil; cursor = cursor.ParentSpan() {
+		spans = append(spans, cursor)
+	}
+	for idx := len(spans) - 1; idx >= 0; idx-- {
+		stackSpan := spans[idx]
+		payload := stackSpan.Payload()
+		if payload == nil {
+			payload = &SpanPayload{}
+		}
+		serviceName := payload.ServiceName
+		if serviceName == "" {
+			serviceName = "unknown service"
+		}
+		spanID := payload.SpanID
+		if spanID == "" {
+			spanID = namer.SpanName(stackSpan)
+		}
+		ret = append(ret, criticalPathFrame{
+			key:         "span:" + string(rendertrace.DefaultSpanID[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload](stackSpan, namer)),
+			kind:        criticalPathLeafFrameKind,
+			span:        stackSpan,
+			serviceName: serviceName,
+			name:        spanID,
+			payload:     payload,
+		})
+	}
+	return ret
+}
+
+func criticalPathNodeVisible(node *criticalPathFrameNode, domain rendertrace.TimeRange) bool {
+	return node.end > domain.Start && node.start < domain.End
+}
+
+func sameCriticalPathSpan(
+	left trace.Span[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
+	right trace.Span[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
+	namer *Namer,
+) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+	leftPayload := left.Payload()
+	rightPayload := right.Payload()
+	if leftPayload != nil && rightPayload != nil && leftPayload.SpanID != "" && rightPayload.SpanID != "" {
+		return leftPayload.SpanID == rightPayload.SpanID
+	}
+	return namer.SpanName(left) == namer.SpanName(right)
 }
 
 type renderedCausalEventKind string
@@ -709,7 +1004,7 @@ type syntheticServiceSpanView struct {
 }
 
 func (sv syntheticServiceSpanView) ID() rendertrace.SpanID {
-	return rendertrace.SpanID("synthetic-service:" + sv.categoryPayload.ID)
+	return rendertrace.SpanID("synthetic-category:" + sv.categoryPayload.ID)
 }
 
 func (sv syntheticServiceSpanView) TimeRange() rendertrace.TimeRange {
@@ -743,6 +1038,13 @@ func (sv syntheticServiceSpanView) RenderTraceVizSpan(
 		serviceName = sv.categoryPayload.Name
 	}
 	serviceColor := serviceColor(serviceName)
+	syntheticTooltip := tooltipText(
+		serviceName,
+		"Kind: synthetic_service",
+		tooltipLine("Service", serviceName),
+		fmt.Sprintf("Peak concurrency: %d", sv.concurrencyMap.Peak),
+		durationTooltipLine(spanRange.Start, spanRange.End),
+	)
 	renderedSpan := parent.Span(
 		spanRange.Start,
 		spanRange.End,
@@ -755,6 +1057,7 @@ func (sv syntheticServiceSpanView) RenderTraceVizSpan(
 		util.StringProperty("service_name", serviceName),
 		util.StringProperty("category_id", sv.categoryPayload.ID),
 		util.IntegerProperty("concurrency_peak", int64(sv.concurrencyMap.Peak)),
+		util.StringProperty("tooltip", syntheticTooltip),
 	)
 	addCriticalPathOverlayNodes(renderedSpan, view, sv.ID())
 	for _, bucket := range sv.concurrencyMap.Buckets(concurrency.BucketOptions{
@@ -774,6 +1077,14 @@ func (sv syntheticServiceSpanView) RenderTraceVizSpan(
 			intensity = bucket.Avg / float64(sv.concurrencyMap.Peak)
 		}
 		bucketColor := serviceHeatmapColor(serviceName, intensity)
+		bucketTooltip := tooltipText(
+			serviceName,
+			"Kind: concurrency_heatmap",
+			tooltipLine("Service", serviceName),
+			fmt.Sprintf("Avg concurrency: %.2f", bucket.Avg),
+			fmt.Sprintf("Peak concurrency: %d", bucket.Peak),
+			durationTooltipLine(time.Duration(bucket.Start), time.Duration(bucket.End)),
+		)
 		renderedSpan.Subspan(
 			time.Duration(bucket.Start),
 			time.Duration(bucket.End),
@@ -787,6 +1098,7 @@ func (sv syntheticServiceSpanView) RenderTraceVizSpan(
 			util.StringProperty("category_id", sv.categoryPayload.ID),
 			util.DoubleProperty("concurrency_avg", bucket.Avg),
 			util.IntegerProperty("concurrency_peak", int64(bucket.Peak)),
+			util.StringProperty("tooltip", bucketTooltip),
 		)
 	}
 	return renderedSpan, nil
@@ -815,7 +1127,7 @@ func (sv spanView) ChildSpans(
 	}
 	var ret []rendertrace.SpanView
 	for _, child := range sv.span.ChildSpans() {
-		if !spanSubtreeContainsFocusedSpan(child, view) {
+		if !spanVisible(child, view, sv.namer) {
 			continue
 		}
 		ret = append(ret, spanView{
@@ -878,6 +1190,14 @@ func spanMatchesSearch(spanID rendertrace.SpanID, view rendertrace.RenderView) b
 	return ok
 }
 
+func spanContainsSearchMatch(spanID rendertrace.SpanID, view rendertrace.RenderView) bool {
+	if view.SearchResult == nil {
+		return false
+	}
+	_, ok := view.SearchResult.SpansWithDescendantMatch[spanID]
+	return ok
+}
+
 func spanPrimaryColor(spanID rendertrace.SpanID, view rendertrace.RenderView) string {
 	if spanMatchesSearch(spanID, view) {
 		return searchMatchColor
@@ -896,6 +1216,20 @@ func markSpanCategoryAncestors(
 			namer,
 		)
 		searchResult.CategoriesWithDescendantMatch[categoryID] = struct{}{}
+	}
+}
+
+func markSpanAncestors(
+	searchResult *rendertrace.SearchResult,
+	span trace.Span[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
+	namer *Namer,
+) {
+	for cursor := span.ParentSpan(); cursor != nil; cursor = cursor.ParentSpan() {
+		spanID := rendertrace.DefaultSpanID[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload](
+			cursor,
+			namer,
+		)
+		searchResult.SpansWithDescendantMatch[spanID] = struct{}{}
 	}
 }
 
@@ -938,6 +1272,62 @@ func spanOverlapsTimeRange(
 	return span.End() > timeRange.Start && span.Start() < timeRange.End
 }
 
+func categoryVisible(
+	category trace.Category[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
+	view rendertrace.RenderView,
+	namer *Namer,
+) bool {
+	if !categorySubtreeContainsFocusedSpan(category, view) {
+		return false
+	}
+	if view.Request.HideEmptyCategories && !categorySubtreeOverlapsTimeRange(category, view.TemporalDomain) {
+		return false
+	}
+	categoryID := rendertrace.DefaultCategoryID[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload](
+		category,
+		namer,
+	)
+	if view.Request.DisplayMode == rendertrace.DisplayOnlyMatches {
+		if !categoryMatchesSearch(categoryID, view) && !categoryContainsSearchMatch(categoryID, view) {
+			return false
+		}
+	}
+	if view.Request.ShowOnlyCriticalPath && len(view.Request.FocusSpanIDs) == 0 {
+		if !view.CriticalPathVisibility.ContainsCategory(categoryID) {
+			return false
+		}
+	}
+	return true
+}
+
+func spanVisible(
+	span trace.Span[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
+	view rendertrace.RenderView,
+	namer *Namer,
+) bool {
+	if !spanSubtreeContainsFocusedSpan(span, view) {
+		return false
+	}
+	if view.Request.HideEmptyCategories && !spanSubtreeOverlapsTimeRange(span, view.TemporalDomain) {
+		return false
+	}
+	spanID := rendertrace.DefaultSpanID[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload](
+		span,
+		namer,
+	)
+	if view.Request.DisplayMode == rendertrace.DisplayOnlyMatches {
+		if !spanMatchesSearch(spanID, view) && !spanContainsSearchMatch(spanID, view) {
+			return false
+		}
+	}
+	if view.Request.ShowOnlyCriticalPath && len(view.Request.FocusSpanIDs) == 0 {
+		if !view.CriticalPathVisibility.ContainsSpan(spanID) {
+			return false
+		}
+	}
+	return true
+}
+
 func spanSubtreeContainsFocusedSpan(
 	span trace.Span[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
 	view rendertrace.RenderView,
@@ -972,6 +1362,40 @@ func spanMatchesFocusedID(
 	return false
 }
 
+func tooltipText(lines ...string) string {
+	filtered := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if line != "" {
+			filtered = append(filtered, line)
+		}
+	}
+	return strings.Join(filtered, "\n")
+}
+
+func tooltipLine(label string, value string) string {
+	if value == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s: %s", label, value)
+}
+
+func durationTooltipLine(start, end time.Duration) string {
+	return fmt.Sprintf("Duration: %s", end-start)
+}
+
+func spanIdentityTooltipLines(labelText string, payload *SpanPayload) []string {
+	lines := []string{
+		labelText,
+		tooltipLine("Span ID", payload.SpanID),
+		tooltipLine("Service", payload.ServiceName),
+		tooltipLine("Process", payload.ProcessID),
+	}
+	if payload.OperationName != "" && payload.OperationName != labelText {
+		lines = append(lines, tooltipLine("Operation", payload.OperationName))
+	}
+	return lines
+}
+
 func (sv spanView) RenderTraceVizSpan(
 	ctx context.Context,
 	view rendertrace.RenderView,
@@ -988,6 +1412,14 @@ func (sv spanView) RenderTraceVizSpan(
 	if labelText == "" {
 		labelText = payload.SpanID
 	}
+	spanSuspends := spanSuspendCount(sv.span)
+	spanCausalEvents := spanCausalEventCount(sv.span)
+	spanTooltipLines := append(
+		spanIdentityTooltipLines(labelText, payload),
+		fmt.Sprintf("Suspends: %d", spanSuspends),
+		fmt.Sprintf("Causal events: %d", spanCausalEvents),
+		durationTooltipLine(sv.span.Start(), sv.span.End()),
+	)
 	renderedSpan := parent.Span(
 		sv.span.Start(),
 		sv.span.End(),
@@ -1000,11 +1432,17 @@ func (sv spanView) RenderTraceVizSpan(
 		util.StringProperty("service_name", payload.ServiceName),
 		util.StringProperty("process_id", payload.ProcessID),
 		util.StringProperty("operation_name", payload.OperationName),
-		util.IntegerProperty("suspend_count", int64(spanSuspendCount(sv.span))),
-		util.IntegerProperty("causal_event_count", int64(spanCausalEventCount(sv.span))),
+		util.IntegerProperty("suspend_count", int64(spanSuspends)),
+		util.IntegerProperty("causal_event_count", int64(spanCausalEvents)),
+		util.StringProperty("tooltip", tooltipText(spanTooltipLines...)),
 	)
 	addCriticalPathOverlayNodes(renderedSpan, view, sv.ID())
 	for _, suspend := range renderableSuspendIntervals(sv.span, view) {
+		suspendTooltipLines := append(
+			[]string{labelText, "Kind: suspend"},
+			spanIdentityTooltipLines(labelText, payload)[1:]...,
+		)
+		suspendTooltipLines = append(suspendTooltipLines, durationTooltipLine(suspend.Start, suspend.End))
 		renderedSpan.Subspan(
 			suspend.Start,
 			suspend.End,
@@ -1017,10 +1455,25 @@ func (sv spanView) RenderTraceVizSpan(
 			util.StringProperty("service_name", payload.ServiceName),
 			util.StringProperty("process_id", payload.ProcessID),
 			util.StringProperty("operation_name", payload.OperationName),
+			util.StringProperty("tooltip", tooltipText(suspendTooltipLines...)),
 		)
 	}
 	for _, eventChip := range renderableCausalEventChips(sv.span, view, sv.namer) {
 		eventStyle := renderedCausalEventStyles[eventChip.Event.kind]
+		eventTooltipLines := append(
+			[]string{
+				labelText,
+				"Kind: causal_event",
+				tooltipLine("Event", eventChip.Event.displayName),
+				tooltipLine("Event type", string(eventChip.Event.kind)),
+				tooltipLine("Event time", sv.namer.MomentString(eventChip.Event.moment)),
+				tooltipLine("Label", eventChip.Event.label),
+				tooltipLine("Dependency", eventChip.Event.dependencyType),
+				tooltipLine("Dependency key", eventChip.Event.dependencyKey),
+				eventChip.Event.detail,
+			},
+			spanIdentityTooltipLines(labelText, payload)[1:]...,
+		)
 		renderedSpan.Subspan(
 			eventChip.Start,
 			eventChip.End,
@@ -1041,6 +1494,7 @@ func (sv spanView) RenderTraceVizSpan(
 			util.StringProperty("service_name", payload.ServiceName),
 			util.StringProperty("process_id", payload.ProcessID),
 			util.StringProperty("operation_name", payload.OperationName),
+			util.StringProperty("tooltip", tooltipText(eventTooltipLines...)),
 		)
 	}
 	return renderedSpan, nil
@@ -1337,11 +1791,20 @@ func renderableSuspendIntervals(
 	span trace.Span[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
 	view rendertrace.RenderView,
 ) []rendertrace.TimeRange {
-	rawSuspends := suspendIntervals(span, view.TemporalDomain)
+	return renderableSuspendIntervalsInDomain(span, view, view.TemporalDomain)
+}
+
+func renderableSuspendIntervalsInDomain(
+	span trace.Span[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
+	view rendertrace.RenderView,
+	domain rendertrace.TimeRange,
+) []rendertrace.TimeRange {
+	domain.Start = maxDuration(domain.Start, view.TemporalDomain.Start)
+	domain.End = minDuration(domain.End, view.TemporalDomain.End)
+	rawSuspends := suspendIntervals(span, domain)
 	if len(rawSuspends) == 0 {
 		return nil
 	}
-	domain := view.TemporalDomain
 	if domain.End <= domain.Start || view.Request.TraceViewRangePx <= 0 {
 		return nil
 	}

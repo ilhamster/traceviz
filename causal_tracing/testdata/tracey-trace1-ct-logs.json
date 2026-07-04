@@ -1,0 +1,243 @@
+{
+  "data": [
+    {
+      "traceID": "tracey-trace1",
+      "spans": [
+        {
+          "traceID": "tracey-trace1",
+          "spanID": "s0.0.0",
+          "flags": 1,
+          "operationName": "s0.0.0",
+          "references": [],
+          "startTime": 1000000,
+          "duration": 100000,
+          "tags": [
+            { "key": "fixture", "type": "string", "value": "tracey.Trace1" }
+          ],
+          "logs": [
+            {
+              "timestamp": 1000000,
+              "fields": [
+                { "key": "type", "type": "string", "value": "mark" },
+                { "key": "label", "type": "string", "value": "start" }
+              ]
+            },
+            {
+              "timestamp": 1010000,
+              "fields": [
+                { "key": "type", "type": "string", "value": "tracey_call" },
+                { "key": "child_span_id", "type": "string", "value": "s0.0.0/0" },
+                { "key": "call_id", "type": "string", "value": "s0.0.0-calls-0" }
+              ]
+            },
+            {
+              "timestamp": 1090000,
+              "fields": [
+                { "key": "type", "type": "string", "value": "tracey_return" },
+                { "key": "child_span_id", "type": "string", "value": "s0.0.0/0" },
+                { "key": "call_id", "type": "string", "value": "s0.0.0-calls-0" }
+              ]
+            },
+            {
+              "timestamp": 1100000,
+              "fields": [
+                { "key": "type", "type": "string", "value": "mark" },
+                { "key": "label", "type": "string", "value": "end" }
+              ]
+            }
+          ],
+          "processID": "p0-t0",
+          "warnings": null
+        },
+        {
+          "traceID": "tracey-trace1",
+          "spanID": "s0.0.0/0",
+          "flags": 1,
+          "operationName": "0",
+          "references": [
+            { "refType": "CHILD_OF", "traceID": "tracey-trace1", "spanID": "s0.0.0" }
+          ],
+          "startTime": 1010000,
+          "duration": 80000,
+          "tags": [
+            { "key": "fixture", "type": "string", "value": "tracey.Trace1" }
+          ],
+          "logs": [
+            {
+              "timestamp": 1020000,
+              "fields": [
+                { "key": "type", "type": "string", "value": "tracey_dependency_origin" },
+                { "key": "dependency_id", "type": "string", "value": "spawn-s0.1.0" },
+                { "key": "dependency_type", "type": "string", "value": "spawn" }
+              ]
+            },
+            {
+              "timestamp": 1030000,
+              "fields": [
+                { "key": "type", "type": "string", "value": "tracey_dependency_origin" },
+                { "key": "dependency_id", "type": "string", "value": "spawn-s1.0.0" },
+                { "key": "dependency_type", "type": "string", "value": "spawn" }
+              ]
+            },
+            {
+              "timestamp": 1040000,
+              "fields": [
+                { "key": "type", "type": "string", "value": "tracey_call" },
+                { "key": "child_span_id", "type": "string", "value": "s0.0.0/0/3" },
+                { "key": "call_id", "type": "string", "value": "0-calls-3" }
+              ]
+            },
+            {
+              "timestamp": 1070000,
+              "fields": [
+                { "key": "type", "type": "string", "value": "tracey_return" },
+                { "key": "child_span_id", "type": "string", "value": "s0.0.0/0/3" },
+                { "key": "call_id", "type": "string", "value": "0-calls-3" }
+              ]
+            }
+          ],
+          "processID": "p0-t0",
+          "warnings": null
+        },
+        {
+          "traceID": "tracey-trace1",
+          "spanID": "s0.0.0/0/3",
+          "flags": 1,
+          "operationName": "3",
+          "references": [
+            { "refType": "CHILD_OF", "traceID": "tracey-trace1", "spanID": "s0.0.0/0" }
+          ],
+          "startTime": 1040000,
+          "duration": 30000,
+          "tags": [
+            { "key": "fixture", "type": "string", "value": "tracey.Trace1" }
+          ],
+          "logs": [
+            {
+              "timestamp": 1050000,
+              "fields": [
+                { "key": "type", "type": "string", "value": "suspend_start" }
+              ]
+            },
+            {
+              "timestamp": 1060000,
+              "fields": [
+                { "key": "type", "type": "string", "value": "tracey_dependency_destination" },
+                { "key": "dependency_id", "type": "string", "value": "signal-to-3" },
+                { "key": "dependency_type", "type": "string", "value": "signal" }
+              ]
+            },
+            {
+              "timestamp": 1060000,
+              "fields": [
+                { "key": "type", "type": "string", "value": "suspend_stop" }
+              ]
+            }
+          ],
+          "processID": "p0-t0",
+          "warnings": null
+        },
+        {
+          "traceID": "tracey-trace1",
+          "spanID": "s0.1.0",
+          "flags": 1,
+          "operationName": "s0.1.0",
+          "references": [],
+          "startTime": 1030000,
+          "duration": 40000,
+          "tags": [
+            { "key": "fixture", "type": "string", "value": "tracey.Trace1" }
+          ],
+          "logs": [
+            {
+              "timestamp": 1030000,
+              "fields": [
+                { "key": "type", "type": "string", "value": "tracey_dependency_destination" },
+                { "key": "dependency_id", "type": "string", "value": "spawn-s0.1.0" },
+                { "key": "dependency_type", "type": "string", "value": "spawn" }
+              ]
+            },
+            {
+              "timestamp": 1040000,
+              "fields": [
+                { "key": "type", "type": "string", "value": "tracey_dependency_destination" },
+                { "key": "dependency_id", "type": "string", "value": "send-to-s0.1.0" },
+                { "key": "dependency_type", "type": "string", "value": "send" }
+              ]
+            },
+            {
+              "timestamp": 1050000,
+              "fields": [
+                { "key": "type", "type": "string", "value": "tracey_dependency_origin" },
+                { "key": "dependency_id", "type": "string", "value": "signal-to-3" },
+                { "key": "dependency_type", "type": "string", "value": "signal" }
+              ]
+            }
+          ],
+          "processID": "p0-t1",
+          "warnings": null
+        },
+        {
+          "traceID": "tracey-trace1",
+          "spanID": "s1.0.0",
+          "flags": 1,
+          "operationName": "s1.0.0",
+          "references": [],
+          "startTime": 1030000,
+          "duration": 20000,
+          "tags": [
+            { "key": "fixture", "type": "string", "value": "tracey.Trace1" }
+          ],
+          "logs": [
+            {
+              "timestamp": 1030000,
+              "fields": [
+                { "key": "type", "type": "string", "value": "tracey_dependency_destination" },
+                { "key": "dependency_id", "type": "string", "value": "spawn-s1.0.0" },
+                { "key": "dependency_type", "type": "string", "value": "spawn" }
+              ]
+            },
+            {
+              "timestamp": 1035000,
+              "fields": [
+                { "key": "type", "type": "string", "value": "tracey_dependency_origin" },
+                { "key": "dependency_id", "type": "string", "value": "send-to-s0.1.0" },
+                { "key": "dependency_type", "type": "string", "value": "send" }
+              ]
+            }
+          ],
+          "processID": "p1-t0",
+          "warnings": null
+        }
+      ],
+      "processes": {
+        "p0-t0": {
+          "serviceName": "p0",
+          "tags": [
+            { "key": "task", "type": "string", "value": "t0.0" },
+            { "key": "region", "type": "string", "value": "r0.0.0" }
+          ]
+        },
+        "p0-t1": {
+          "serviceName": "p0",
+          "tags": [
+            { "key": "task", "type": "string", "value": "t0.1" },
+            { "key": "region", "type": "string", "value": "r0.1.0" }
+          ]
+        },
+        "p1-t0": {
+          "serviceName": "p1",
+          "tags": [
+            { "key": "task", "type": "string", "value": "t1.0" },
+            { "key": "region", "type": "string", "value": "r1.0.0" }
+          ]
+        }
+      },
+      "warnings": null
+    }
+  ],
+  "total": 1,
+  "limit": 0,
+  "offset": 0,
+  "errors": null
+}

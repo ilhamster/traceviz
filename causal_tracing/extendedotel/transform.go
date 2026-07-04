@@ -47,21 +47,30 @@ func (t *Trace) withTrace(
 			transformed,
 			ServiceHierarchyType,
 			ProcessHierarchyType,
-			SpanHierarchyType,
+			ServiceSpawnHierarchyType,
 		),
 	}, nil
 }
 
 func spansByID(
 	tr trace.Trace[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
-) map[string]trace.RootSpan[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload] {
-	ret := map[string]trace.RootSpan[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload]{}
+) map[string]trace.Span[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload] {
+	ret := map[string]trace.Span[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload]{}
 	for _, rootSpan := range tr.RootSpans() {
-		payload := rootSpan.Payload()
-		if payload == nil || payload.SpanID == "" {
-			continue
-		}
-		ret[payload.SpanID] = rootSpan
+		indexSpanByID(ret, rootSpan)
 	}
 	return ret
+}
+
+func indexSpanByID(
+	spans map[string]trace.Span[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
+	span trace.Span[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
+) {
+	payload := span.Payload()
+	if payload != nil && payload.SpanID != "" {
+		spans[payload.SpanID] = span
+	}
+	for _, childSpan := range span.ChildSpans() {
+		indexSpanByID(spans, childSpan)
+	}
 }

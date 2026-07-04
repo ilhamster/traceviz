@@ -23,6 +23,7 @@ import {
 	StringValue,
 	Trace,
 	Update,
+	UrlHash,
 	ValueMap,
 	Watch,
 	type Axis,
@@ -60,25 +61,33 @@ import {
 } from '@traceviz/client-react';
 import type { Subscription } from 'rxjs';
 
-const DEFAULT_TRACE_PATH = 'testdata/compose-post-ct-logs.json';
+const DEFAULT_TRACE_PATH = '';
 const LOAD_STATUS_QUERY = 'causal_tracing.load_status';
 const CORPUS_TRACES_QUERY = 'causal_tracing.corpus_traces';
 const TRACE_STATUS_QUERY = 'causal_tracing.trace_status';
+const HIERARCHY_TYPES_QUERY = 'causal_tracing.hierarchy_types';
+const CRITICAL_PATH_STRATEGIES_QUERY =
+  'causal_tracing.critical_path_strategies';
 const TRACE_DIAGNOSTICS_QUERY = 'causal_tracing.trace_diagnostics';
 const TRACE_QUERY = 'causal_tracing.trace';
 const CRITICAL_PATH_TRACE_QUERY = 'causal_tracing.critical_path_trace';
 const SPAN_CAUSALITY_QUERY = 'causal_tracing.span_causality';
 const VALIDATE_SEARCH_QUERY = 'causal_tracing.validate_search';
 const VALIDATE_TRANSFORM_QUERY = 'causal_tracing.validate_transform';
-const DEFAULT_CRITICAL_PATH_START = '** earliest';
-const DEFAULT_CRITICAL_PATH_END = '** latest';
-const DEFAULT_CRITICAL_PATH_STRATEGY = 'temporal_most_work';
+const VALIDATE_CRITICAL_PATH_QUERY = 'causal_tracing.validate_critical_path';
+const DEFAULT_CRITICAL_PATH_START = '';
+const DEFAULT_CRITICAL_PATH_END = '';
+const DEFAULT_CRITICAL_PATH_STRATEGY = 'Temporal Max work (non causal)';
 const EXPANDED_CATEGORY_IDS_KEY = 'expanded_category_ids';
 const FOCUS_SPAN_IDS_KEY = 'focus_span_ids';
 const SPAN_ID_KEY = 'span_id';
 const OTHER_SPAN_ID_KEY = 'other_span_id';
 const TRACE_VIEW_WIDTH_PX_PARAM = 'trace_view_width_px';
 const TRACE_ID_KEY = 'trace_id';
+const HIERARCHY_TYPE_KEY = 'hierarchy_type';
+const HIERARCHY_NAME_KEY = 'hierarchy_name';
+const HIERARCHY_DESCRIPTION_KEY = 'hierarchy_description';
+const DEFAULT_HIERARCHY_TYPE = 'service';
 const CATEGORY_ID_PROPERTY_KEY = 'category_id';
 const CATEGORY_EXPANSION_STATE_KEY = 'category_expansion_state';
 const CATEGORY_STATE_COLLAPSED = 'collapsed';
@@ -88,13 +97,22 @@ const TEMPORAL_DOMAIN_END_KEY = 'temporal_domain_end';
 const CRITICAL_PATH_START_KEY = 'critical_path_start';
 const CRITICAL_PATH_END_KEY = 'critical_path_end';
 const CRITICAL_PATH_STRATEGY_KEY = 'critical_path_strategy';
+const CRITICAL_PATH_STRATEGY_DESCRIPTION_KEY =
+  'critical_path_strategy_description';
+const DRAFT_CRITICAL_PATH_START_KEY = 'draft_critical_path_start';
+const DRAFT_CRITICAL_PATH_END_KEY = 'draft_critical_path_end';
+const DRAFT_CRITICAL_PATH_STRATEGY_KEY = 'draft_critical_path_strategy';
 const SEARCH_KEY = 'search';
 const DRAFT_SEARCH_KEY = 'draft_search';
 const TRANSFORM_TEMPLATE_KEY = 'transform_template';
 const DRAFT_TRANSFORM_TEMPLATE_KEY = 'draft_transform_template';
 const EXPAND_MATCHES_KEY = 'expand_matches';
+const HIDE_NON_MATCHING_KEY = 'hide_non_matching';
+const HIDE_EMPTY_KEY = 'hide_empty';
+const SHOW_ONLY_CRITICAL_PATH_KEY = 'show_only_critical_path';
 const SEARCH_VALIDATION_REQUEST_KEY = 'search_validation_request';
 const TRANSFORM_VALIDATION_REQUEST_KEY = 'transform_validation_request';
+const CRITICAL_PATH_VALIDATION_REQUEST_KEY = 'critical_path_validation_request';
 const STATUS_KEY = 'status';
 const MESSAGE_KEY = 'message';
 const TRACE_FULL_START_KEY = 'trace_full_start';
@@ -115,6 +133,7 @@ type CausalTracingState = {
   dataQuery: DataQuery;
   corpusPath: StringValue;
   traceID: StringValue;
+  hierarchyType: StringValue;
   expandedCategoryIDs: StringSetValue;
   focusSpanIDs: StringListValue;
   temporalDomainStart: DurationValue;
@@ -122,13 +141,20 @@ type CausalTracingState = {
   criticalPathStart: StringValue;
   criticalPathEnd: StringValue;
   criticalPathStrategy: StringValue;
+  draftCriticalPathStart: StringValue;
+  draftCriticalPathEnd: StringValue;
+  draftCriticalPathStrategy: StringValue;
   search: StringValue;
   draftSearch: StringValue;
   transformTemplate: StringValue;
   draftTransformTemplate: StringValue;
   expandMatches: StringValue;
+  hideNonMatching: StringValue;
+  hideEmpty: StringValue;
+  showOnlyCriticalPath: StringValue;
   searchValidationRequest: IntegerValue;
   transformValidationRequest: IntegerValue;
+  criticalPathValidationRequest: IntegerValue;
   traceViewWidthPx: IntegerValue;
   calledOutCategoryID: StringValue;
 };
@@ -138,14 +164,35 @@ type CriticalPathStrategyOption = {
   label: string;
 };
 
-const CRITICAL_PATH_STRATEGY_OPTIONS: CriticalPathStrategyOption[] = [
-  { value: 'temporal_most_work', label: 'Temporal max work' },
-  { value: 'most_work', label: 'Max work' },
-  { value: 'causal', label: 'Causal' },
-  { value: 'predecessor', label: 'Predecessor' },
-  { value: 'most_prox', label: 'Latest predecessor' },
-  { value: 'least_prox', label: 'Earliest predecessor' },
-  { value: 'least_work', label: 'Max dependency delay' },
+type HierarchyOption = {
+  value: string;
+  label: string;
+  description: string;
+};
+
+const FALLBACK_CRITICAL_PATH_STRATEGY_OPTIONS: CriticalPathStrategyOption[] = [
+  {
+    value: 'Temporal Max work (non causal)',
+    label: 'Temporal Max work (non causal)',
+  },
+  { value: 'Maximize work', label: 'Maximize work' },
+  {
+    value: 'Prefer traversing causal dependencies',
+    label: 'Prefer traversing causal dependencies',
+  },
+  {
+    value: 'Prefer traversing sequential dependencies',
+    label: 'Prefer traversing sequential dependencies',
+  },
+  {
+    value: 'Traverse latest-resolving dependencies',
+    label: 'Traverse latest-resolving dependencies',
+  },
+  {
+    value: 'Traverse earliest-resolving dependencies',
+    label: 'Traverse earliest-resolving dependencies',
+  },
+  { value: 'Maximize dependency delay', label: 'Maximize dependency delay' },
 ];
 
 type SeriesResult = {
@@ -339,6 +386,71 @@ function parseRenderedTrace(
   }
 }
 
+function parseHierarchyOptions(
+  data: ResponseNode | undefined,
+  core: AppCore,
+): HierarchyOption[] {
+  if (!data) {
+    return [];
+  }
+  const options: HierarchyOption[] = [];
+  for (const row of data.children.slice(1)) {
+    try {
+      if (!row.properties.has(HIERARCHY_TYPE_KEY)) {
+        continue;
+      }
+      const value = row.properties.expectString(HIERARCHY_TYPE_KEY);
+      const description = row.properties.has(HIERARCHY_DESCRIPTION_KEY)
+        ? row.properties.expectString(HIERARCHY_DESCRIPTION_KEY)
+        : value;
+      const label = description || value;
+      options.push({ value, label, description });
+    } catch (err: unknown) {
+      core.err(
+        err instanceof ConfigurationError
+          ? err
+          : new ConfigurationError(String(err))
+              .from('causal-tracing.hierarchy-options')
+              .at(Severity.ERROR),
+      );
+    }
+  }
+  return options;
+}
+
+function parseCriticalPathStrategyOptions(
+  data: ResponseNode | undefined,
+  core: AppCore,
+): CriticalPathStrategyOption[] {
+  if (!data) {
+    return [];
+  }
+  const options: CriticalPathStrategyOption[] = [];
+  for (const row of data.children.slice(1)) {
+    try {
+      if (!row.properties.has(CRITICAL_PATH_STRATEGY_KEY)) {
+        continue;
+      }
+      const value = row.properties.expectString(CRITICAL_PATH_STRATEGY_KEY);
+      const description = row.properties.has(
+        CRITICAL_PATH_STRATEGY_DESCRIPTION_KEY,
+      )
+        ? row.properties.expectString(CRITICAL_PATH_STRATEGY_DESCRIPTION_KEY)
+        : value;
+      options.push({ value, label: description || value });
+    } catch (err: unknown) {
+      core.err(
+        err instanceof ConfigurationError
+          ? err
+          : new ConfigurationError(String(err))
+              .from('causal-tracing.critical-path-strategy-options')
+              .at(Severity.ERROR),
+      );
+    }
+  }
+  return options;
+}
+
 class SetTemporalDomainFromLocal extends Update {
   constructor(
     private readonly temporalDomainStart: DurationValue,
@@ -446,6 +558,7 @@ class KeyboardTemporalZoom extends Update {
 function createCausalTracingState(): CausalTracingState {
   const corpusPath = new StringValue(DEFAULT_TRACE_PATH);
   const traceID = new StringValue('');
+  const hierarchyType = new StringValue(DEFAULT_HIERARCHY_TYPE);
   const expandedCategoryIDs = new StringSetValue(new Set<string>());
   const focusSpanIDs = new StringListValue([]);
   const temporalDomainStart = new DurationValue(new Duration(0));
@@ -453,18 +566,26 @@ function createCausalTracingState(): CausalTracingState {
   const criticalPathStart = new StringValue(DEFAULT_CRITICAL_PATH_START);
   const criticalPathEnd = new StringValue(DEFAULT_CRITICAL_PATH_END);
   const criticalPathStrategy = new StringValue(DEFAULT_CRITICAL_PATH_STRATEGY);
+  const draftCriticalPathStart = new StringValue(DEFAULT_CRITICAL_PATH_START);
+  const draftCriticalPathEnd = new StringValue(DEFAULT_CRITICAL_PATH_END);
+  const draftCriticalPathStrategy = new StringValue(DEFAULT_CRITICAL_PATH_STRATEGY);
   const search = new StringValue('');
   const draftSearch = new StringValue('');
   const transformTemplate = new StringValue('');
   const draftTransformTemplate = new StringValue('');
   const expandMatches = new StringValue('false');
+  const hideNonMatching = new StringValue('false');
+  const hideEmpty = new StringValue('false');
+  const showOnlyCriticalPath = new StringValue('false');
   const searchValidationRequest = new IntegerValue(0);
   const transformValidationRequest = new IntegerValue(0);
+  const criticalPathValidationRequest = new IntegerValue(0);
   const traceViewWidthPx = new IntegerValue(0);
   const calledOutCategoryID = new StringValue('');
   const core = new AppCore();
   core.globalState.set('corpus_path', corpusPath);
   core.globalState.set('trace_id', traceID);
+  core.globalState.set(HIERARCHY_TYPE_KEY, hierarchyType);
   core.globalState.set(EXPANDED_CATEGORY_IDS_KEY, expandedCategoryIDs);
   core.globalState.set(FOCUS_SPAN_IDS_KEY, focusSpanIDs);
   core.globalState.set(TEMPORAL_DOMAIN_START_KEY, temporalDomainStart);
@@ -472,11 +593,17 @@ function createCausalTracingState(): CausalTracingState {
   core.globalState.set(CRITICAL_PATH_START_KEY, criticalPathStart);
   core.globalState.set(CRITICAL_PATH_END_KEY, criticalPathEnd);
   core.globalState.set(CRITICAL_PATH_STRATEGY_KEY, criticalPathStrategy);
+  core.globalState.set(DRAFT_CRITICAL_PATH_START_KEY, draftCriticalPathStart);
+  core.globalState.set(DRAFT_CRITICAL_PATH_END_KEY, draftCriticalPathEnd);
+  core.globalState.set(DRAFT_CRITICAL_PATH_STRATEGY_KEY, draftCriticalPathStrategy);
   core.globalState.set(SEARCH_KEY, search);
   core.globalState.set(DRAFT_SEARCH_KEY, draftSearch);
   core.globalState.set(TRANSFORM_TEMPLATE_KEY, transformTemplate);
   core.globalState.set(DRAFT_TRANSFORM_TEMPLATE_KEY, draftTransformTemplate);
   core.globalState.set(EXPAND_MATCHES_KEY, expandMatches);
+  core.globalState.set(HIDE_NON_MATCHING_KEY, hideNonMatching);
+  core.globalState.set(HIDE_EMPTY_KEY, hideEmpty);
+  core.globalState.set(SHOW_ONLY_CRITICAL_PATH_KEY, showOnlyCriticalPath);
 
   const dataQuery = core.addDataQuery();
   dataQuery.connect(new HttpDataFetcher(core));
@@ -485,6 +612,7 @@ function createCausalTracingState(): CausalTracingState {
       new Map<string, Value>([
         ['corpus_path', corpusPath],
         ['trace_id', traceID],
+        [HIERARCHY_TYPE_KEY, hierarchyType],
         [EXPANDED_CATEGORY_IDS_KEY, expandedCategoryIDs],
         [FOCUS_SPAN_IDS_KEY, focusSpanIDs],
         [TEMPORAL_DOMAIN_START_KEY, temporalDomainStart],
@@ -492,11 +620,17 @@ function createCausalTracingState(): CausalTracingState {
         [CRITICAL_PATH_START_KEY, criticalPathStart],
         [CRITICAL_PATH_END_KEY, criticalPathEnd],
         [CRITICAL_PATH_STRATEGY_KEY, criticalPathStrategy],
+        [DRAFT_CRITICAL_PATH_START_KEY, draftCriticalPathStart],
+        [DRAFT_CRITICAL_PATH_END_KEY, draftCriticalPathEnd],
+        [DRAFT_CRITICAL_PATH_STRATEGY_KEY, draftCriticalPathStrategy],
         [SEARCH_KEY, search],
         [DRAFT_SEARCH_KEY, draftSearch],
         [TRANSFORM_TEMPLATE_KEY, transformTemplate],
         [DRAFT_TRANSFORM_TEMPLATE_KEY, draftTransformTemplate],
         [EXPAND_MATCHES_KEY, expandMatches],
+        [HIDE_NON_MATCHING_KEY, hideNonMatching],
+        [HIDE_EMPTY_KEY, hideEmpty],
+        [SHOW_ONLY_CRITICAL_PATH_KEY, showOnlyCriticalPath],
       ]),
     ),
   );
@@ -508,6 +642,7 @@ function createCausalTracingState(): CausalTracingState {
     dataQuery,
     corpusPath,
     traceID,
+    hierarchyType,
     expandedCategoryIDs,
     focusSpanIDs,
     temporalDomainStart,
@@ -515,13 +650,20 @@ function createCausalTracingState(): CausalTracingState {
     criticalPathStart,
     criticalPathEnd,
     criticalPathStrategy,
+    draftCriticalPathStart,
+    draftCriticalPathEnd,
+    draftCriticalPathStrategy,
     search,
     draftSearch,
     transformTemplate,
     draftTransformTemplate,
     expandMatches,
+    hideNonMatching,
+    hideEmpty,
+    showOnlyCriticalPath,
     searchValidationRequest,
     transformValidationRequest,
+    criticalPathValidationRequest,
     traceViewWidthPx,
     calledOutCategoryID,
   };
@@ -536,6 +678,8 @@ function useDataSeries(
   const [data, setData] = useState<ResponseNode | undefined>(undefined);
   const [loading, setLoading] = useState<boolean>(false);
 
+  // Maintains one TraceViz DataSeriesQuery for the provided query identity,
+  // replacing it only when the query object, name, parameters, or fetch predicate changes.
   useEffect(() => {
     const seriesQuery = new DataSeriesQuery(
       dataQuery,
@@ -557,16 +701,18 @@ function useDataSeries(
 }
 
 function useMeasuredWidth(): [RefCallback<HTMLDivElement>, number] {
-	const [element, setElement] = useState<HTMLDivElement | null>(null);
-	const [widthPx, setWidthPx] = useState<number>(0);
+  const [element, setElement] = useState<HTMLDivElement | null>(null);
+  const [widthPx, setWidthPx] = useState<number>(0);
 
-	useEffect(() => {
-		if (!element) {
-			setWidthPx(0);
-			return;
-		}
-		const updateWidth = (nextWidthPx: number): void => {
-			setWidthPx(Math.max(0, Math.round(nextWidthPx)));
+  // Tracks the current DOM element's content width, rebuilding the observer when
+  // the ref target changes.
+  useEffect(() => {
+    if (!element) {
+      setWidthPx(0);
+      return;
+    }
+    const updateWidth = (nextWidthPx: number): void => {
+      setWidthPx(Math.max(0, Math.round(nextWidthPx)));
     };
     updateWidth(element.getBoundingClientRect().width);
     const observer = new ResizeObserver((entries) => {
@@ -576,54 +722,105 @@ function useMeasuredWidth(): [RefCallback<HTMLDivElement>, number] {
       }
     });
     observer.observe(element);
-		return () => {
-			observer.disconnect();
-		};
-	}, [element]);
+    return () => {
+      observer.disconnect();
+    };
+  }, [element]);
 
-	const ref = useCallback((node: HTMLDivElement | null): void => {
-		setElement(node);
-	}, []);
+  // Provides a stable React ref callback that publishes the latest measured element.
+  const ref = useCallback(
+    (node: HTMLDivElement | null): void => {
+      setElement(node);
+    },
+    [],
+  );
 
-	return [ref, widthPx];
+  return [ref, widthPx];
 }
 
 export default function App(): JSX.Element {
+  // Creates the TraceViz AppCore, Values, and DataQuery exactly once for this app instance.
   const state = useMemo(() => createCausalTracingState(), []);
   const corpusPath = useValue(state.corpusPath, DEFAULT_TRACE_PATH) ?? '';
   const selectedTraceID = useValue(state.traceID, '') ?? '';
+  const selectedHierarchyType =
+    useValue(state.hierarchyType, DEFAULT_HIERARCHY_TYPE) ??
+    DEFAULT_HIERARCHY_TYPE;
   const focusSpanIDs = useValue<string[]>(state.focusSpanIDs, []) ?? [];
   const focusSpanID = focusSpanIDs.length > 0 ? focusSpanIDs[0] : '';
-  const criticalPathStart = useValue(
-    state.criticalPathStart,
-    DEFAULT_CRITICAL_PATH_START,
-  ) ?? DEFAULT_CRITICAL_PATH_START;
-  const criticalPathEnd = useValue(
-    state.criticalPathEnd,
-    DEFAULT_CRITICAL_PATH_END,
-  ) ?? DEFAULT_CRITICAL_PATH_END;
   const criticalPathStrategy = useValue(
     state.criticalPathStrategy,
     DEFAULT_CRITICAL_PATH_STRATEGY,
   ) ?? DEFAULT_CRITICAL_PATH_STRATEGY;
+  const draftCriticalPathStart = useValue(
+    state.draftCriticalPathStart,
+    DEFAULT_CRITICAL_PATH_START,
+  ) ?? DEFAULT_CRITICAL_PATH_START;
+  const draftCriticalPathEnd = useValue(
+    state.draftCriticalPathEnd,
+    DEFAULT_CRITICAL_PATH_END,
+  ) ?? DEFAULT_CRITICAL_PATH_END;
+  const draftCriticalPathStrategy = useValue(
+    state.draftCriticalPathStrategy,
+    DEFAULT_CRITICAL_PATH_STRATEGY,
+  ) ?? DEFAULT_CRITICAL_PATH_STRATEGY;
   const draftSearch = useValue(state.draftSearch, '') ?? '';
+  const committedSearch = useValue(state.search, '') ?? '';
   const transformTemplate = useValue(state.transformTemplate, '') ?? '';
   const draftTransformTemplate = useValue(
     state.draftTransformTemplate,
     '',
   ) ?? '';
   const expandMatches = useValue(state.expandMatches, 'false') === 'true';
+  const hideNonMatching = useValue(state.hideNonMatching, 'false') === 'true';
+  const hideEmpty = useValue(state.hideEmpty, 'false') === 'true';
+  const showOnlyCriticalPath =
+    useValue(state.showOnlyCriticalPath, 'false') === 'true';
   const [searchValidationError, setSearchValidationError] = useState<string>('');
+  const [criticalPathValidationError, setCriticalPathValidationError] =
+    useState<string>('');
   const [transformModalOpen, setTransformModalOpen] = useState<boolean>(false);
   const [transformValidationError, setTransformValidationError] =
     useState<string>('');
+  // Binds URL-hash state to the stable TraceViz Value objects that identify the
+  // selected corpus, trace, and hierarchy.
+  useEffect(() => {
+    const urlHash = new UrlHash({
+      unencoded: new ValueMap(
+        new Map<string, Value>([
+          ['corpus_path', state.corpusPath],
+          [TRACE_ID_KEY, state.traceID],
+          [HIERARCHY_TYPE_KEY, state.hierarchyType],
+        ]),
+      ),
+      stateful: [TRACE_ID_KEY, HIERARCHY_TYPE_KEY],
+      onError: (err: unknown) => {
+        state.core.err(
+          err instanceof ConfigurationError
+            ? err
+            : new ConfigurationError(String(err))
+                .from('causal-tracing.url-hash')
+                .at(Severity.ERROR),
+        );
+      },
+    });
+    urlHash.start();
+    return () => {
+      urlHash.stop();
+    };
+  }, [state.core, state.corpusPath, state.hierarchyType, state.traceID]);
   const [tracePanelRef, measuredTraceWidthPx] = useMeasuredWidth();
+  // Publishes measured trace panel width into TraceViz state so backend render
+  // queries can downsample to the actual viewport.
   useEffect(() => {
     if (measuredTraceWidthPx > 0) {
       state.traceViewWidthPx.val = measuredTraceWidthPx;
     }
   }, [measuredTraceWidthPx, state.traceViewWidthPx]);
+  // Reuses an empty parameter map for queries whose inputs are all global filters.
   const emptyParams = useMemo(() => new ValueMap(), []);
+  // Supplies only the trace viewport width as a per-query parameter; trace identity
+  // and render policy stay in global filters.
   const traceParams = useMemo(
     () =>
       new ValueMap(
@@ -635,10 +832,12 @@ export default function App(): JSX.Element {
   );
   const globalRef = (key: string): GlobalValueRef =>
     new GlobalValueRef(state.core, key);
+  // Refetches corpus-level queries when the corpus path Value publishes a change.
   const corpusChanged = useMemo(
     () => new Changed([globalRef('corpus_path')]),
     [state.core],
   );
+  // Refetches trace metadata queries when the selected corpus, trace, or transform changes.
   const traceChanged = useMemo(
     () =>
       new Changed([
@@ -648,11 +847,14 @@ export default function App(): JSX.Element {
       ]),
     [state.core],
   );
-	const traceRenderChanged = useMemo(
-		() =>
-			new Changed([
-				globalRef('corpus_path'),
-				globalRef('trace_id'),
+  // Refetches rendered trace views when trace identity, render policy, viewport
+  // domain, critical path policy, search/filter state, or measured width changes.
+  const traceRenderChanged = useMemo(
+    () =>
+      new Changed([
+        globalRef('corpus_path'),
+        globalRef('trace_id'),
+        globalRef(HIERARCHY_TYPE_KEY),
         globalRef(EXPANDED_CATEGORY_IDS_KEY),
         globalRef(FOCUS_SPAN_IDS_KEY),
         globalRef(TEMPORAL_DOMAIN_START_KEY),
@@ -663,20 +865,26 @@ export default function App(): JSX.Element {
         globalRef(SEARCH_KEY),
         globalRef(TRANSFORM_TEMPLATE_KEY),
         globalRef(EXPAND_MATCHES_KEY),
-				new DirectValueRef(state.traceViewWidthPx, 'trace view width'),
+        globalRef(HIDE_NON_MATCHING_KEY),
+        globalRef(HIDE_EMPTY_KEY),
+        globalRef(SHOW_ONLY_CRITICAL_PATH_KEY),
+        new DirectValueRef(state.traceViewWidthPx, 'trace view width'),
       ]),
     [state.core, state.traceViewWidthPx],
   );
+  // Refetches the span focus table when the focused stack or selected trace context changes.
   const spanFocusChanged = useMemo(
     () =>
       new Changed([
         globalRef('corpus_path'),
         globalRef('trace_id'),
         globalRef(TRANSFORM_TEMPLATE_KEY),
+        globalRef(HIERARCHY_TYPE_KEY),
         globalRef(FOCUS_SPAN_IDS_KEY),
       ]),
     [state.core],
   );
+  // Refetches search validation only when the explicit validation counter changes.
   const searchValidationChanged = useMemo(
     () =>
       new Changed([
@@ -687,6 +895,7 @@ export default function App(): JSX.Element {
       ]),
     [state.searchValidationRequest],
   );
+  // Refetches transform validation only when the explicit validation counter changes.
   const transformValidationChanged = useMemo(
     () =>
       new Changed([
@@ -696,6 +905,17 @@ export default function App(): JSX.Element {
         ),
       ]),
     [state.transformValidationRequest],
+  );
+  // Refetches critical path validation only when the explicit validation counter changes.
+  const criticalPathValidationChanged = useMemo(
+    () =>
+      new Changed([
+        new DirectValueRef(
+          state.criticalPathValidationRequest,
+          'critical path validation request',
+        ),
+      ]),
+    [state.criticalPathValidationRequest],
   );
   const status = useDataSeries(
     state.dataQuery,
@@ -712,6 +932,18 @@ export default function App(): JSX.Element {
   const traceStatus = useDataSeries(
     state.dataQuery,
     TRACE_STATUS_QUERY,
+    emptyParams,
+    traceChanged,
+  );
+  const hierarchyTypes = useDataSeries(
+    state.dataQuery,
+    HIERARCHY_TYPES_QUERY,
+    emptyParams,
+    traceChanged,
+  );
+  const criticalPathStrategies = useDataSeries(
+    state.dataQuery,
+    CRITICAL_PATH_STRATEGIES_QUERY,
     emptyParams,
     traceChanged,
   );
@@ -751,6 +983,14 @@ export default function App(): JSX.Element {
     emptyParams,
     transformValidationChanged,
   );
+  const criticalPathValidation = useDataSeries(
+    state.dataQuery,
+    VALIDATE_CRITICAL_PATH_QUERY,
+    emptyParams,
+    criticalPathValidationChanged,
+  );
+  // Commits a validated search draft, or reports validation failure without changing
+  // the active search.
   useEffect(() => {
     const data = searchValidation.data;
     if (!data) {
@@ -782,6 +1022,63 @@ export default function App(): JSX.Element {
       );
     }
   }, [searchValidation.data, state.core, state.draftSearch, state.search]);
+  // Commits validated critical path endpoints and strategy, or keeps the previous
+  // critical path policy while surfacing validation failure.
+  useEffect(() => {
+    const data = criticalPathValidation.data;
+    if (!data) {
+      return;
+    }
+    try {
+      const validatedStart = data.properties.expectString(
+        DRAFT_CRITICAL_PATH_START_KEY,
+      );
+      const validatedEnd = data.properties.expectString(
+        DRAFT_CRITICAL_PATH_END_KEY,
+      );
+      const validatedStrategy = data.properties.expectString(
+        DRAFT_CRITICAL_PATH_STRATEGY_KEY,
+      );
+      if (
+        validatedStart !== state.draftCriticalPathStart.val ||
+        validatedEnd !== state.draftCriticalPathEnd.val ||
+        validatedStrategy !== state.draftCriticalPathStrategy.val
+      ) {
+        return;
+      }
+      const status = data.properties.expectString(STATUS_KEY);
+      const message = data.properties.has(MESSAGE_KEY)
+        ? data.properties.expectString(MESSAGE_KEY)
+        : '';
+      if (status === 'ok') {
+        setCriticalPathValidationError('');
+        state.criticalPathStart.val = validatedStart;
+        state.criticalPathEnd.val = validatedEnd;
+        state.criticalPathStrategy.val = validatedStrategy;
+        return;
+      }
+      setCriticalPathValidationError(message || 'Invalid critical path');
+    } catch (err: unknown) {
+      state.core.err(
+        err instanceof ConfigurationError
+          ? err
+          : new ConfigurationError(String(err))
+              .from('causal-tracing.critical-path-validation')
+              .at(Severity.ERROR),
+      );
+    }
+  }, [
+    criticalPathValidation.data,
+    state.core,
+    state.criticalPathEnd,
+    state.criticalPathStart,
+    state.criticalPathStrategy,
+    state.draftCriticalPathEnd,
+    state.draftCriticalPathStart,
+    state.draftCriticalPathStrategy,
+  ]);
+  // Commits a validated transform template as a new trace identity, resetting view
+  // state that depends on the concrete rendered trace.
   useEffect(() => {
     const data = transformValidation.data;
     if (!data) {
@@ -827,6 +1124,7 @@ export default function App(): JSX.Element {
     state.temporalDomainStart,
     state.transformTemplate,
   ]);
+  // Parses the backend trace response into a TraceViz Trace for the main overtime view.
   const renderedTrace = useMemo(
     () =>
       parseRenderedTrace(
@@ -834,9 +1132,35 @@ export default function App(): JSX.Element {
         selectedTraceID,
         state.core,
         'causal-tracing.trace-view',
-      ),
+    ),
     [renderedTraceResult.data, selectedTraceID, state.core],
   );
+  // Parses available hierarchy types for the display-options dropdown.
+  const hierarchyOptions = useMemo(
+    () => parseHierarchyOptions(hierarchyTypes.data, state.core),
+    [hierarchyTypes.data, state.core],
+  );
+  // Parses available critical path strategies, falling back to known descriptions
+  // until the backend query has responded.
+  const criticalPathStrategyOptions = useMemo(() => {
+    const options = parseCriticalPathStrategyOptions(
+      criticalPathStrategies.data,
+      state.core,
+    );
+    if (options.length === 0) {
+      return FALLBACK_CRITICAL_PATH_STRATEGY_OPTIONS;
+    }
+    return options;
+  }, [criticalPathStrategies.data, state.core]);
+  // Resolves the active critical path strategy value to the label shown in the group header.
+  const criticalPathStrategyLabel = useMemo(() => {
+    const option = criticalPathStrategyOptions.find(
+      (candidate) => candidate.value === criticalPathStrategy,
+    );
+    return option?.label ?? criticalPathStrategy;
+  }, [criticalPathStrategy, criticalPathStrategyOptions]);
+  // Parses the backend trace response into a TraceViz Trace for the overtime
+  // critical path stack view.
   const renderedCriticalPathTrace = useMemo(
     () =>
       parseRenderedTrace(
@@ -844,9 +1168,11 @@ export default function App(): JSX.Element {
         selectedTraceID,
         state.core,
         'causal-tracing.critical-path-view',
-      ),
+    ),
     [renderedCriticalPathResult.data, selectedTraceID, state.core],
   );
+  // Defines corpus table row behavior: clicking selects a trace and resets
+  // trace-specific focus and zoom state.
   const corpusInteractions = useMemo(() => {
     const traceID = new LocalValue('trace_id');
     return new Interactions()
@@ -873,6 +1199,8 @@ export default function App(): JSX.Element {
     state.temporalDomainEnd,
     state.temporalDomainStart,
   ]);
+  // Defines main trace interactions: span clicks push focus, brushes/reset gestures
+  // update zoom, and category callouts are watched for hover highlighting.
   const traceInteractions = useMemo(() => {
     return new Interactions()
       .withAction(
@@ -913,6 +1241,7 @@ export default function App(): JSX.Element {
     state.temporalDomainEnd,
     state.temporalDomainStart,
   ]);
+  // Maps keypress state to temporal zoom and pan operations over the rendered trace domain.
   const keypressInteractions = useMemo(() => {
     return new Interactions().withAction(
       new Action(KEY_TARGET, KEY_PRESS_ACTION, [
@@ -925,6 +1254,8 @@ export default function App(): JSX.Element {
       ]),
     );
   }, [renderedTrace, state.temporalDomainEnd, state.temporalDomainStart]);
+  // Defines category-axis interactions independently from span interactions: hover
+  // calls out a subtree, click toggles expansion, and mouseout clears the callout.
   const categoryAxisInteractions = useMemo(() => {
     const categoryID = new LocalValue(CATEGORY_ID_PROPERTY_KEY);
     const calledOutCategoryID = new DirectValueRef(
@@ -948,6 +1279,8 @@ export default function App(): JSX.Element {
         ]),
       );
   }, [state.calledOutCategoryID, state.expandedCategoryIDs]);
+  // Defines focus-table navigation: clicking a causal "other span" pushes it onto
+  // the focused span stack.
   const spanCausalityInteractions = useMemo(() => {
     return new Interactions().withAction(
       new Action('rows', 'click', [
@@ -960,9 +1293,20 @@ export default function App(): JSX.Element {
     state.focusSpanIDs.val = [];
     state.search.val = '';
     state.draftSearch.val = '';
+    state.criticalPathStart.val = DEFAULT_CRITICAL_PATH_START;
+    state.criticalPathEnd.val = DEFAULT_CRITICAL_PATH_END;
+    state.criticalPathStrategy.val = DEFAULT_CRITICAL_PATH_STRATEGY;
+    state.draftCriticalPathStart.val = DEFAULT_CRITICAL_PATH_START;
+    state.draftCriticalPathEnd.val = DEFAULT_CRITICAL_PATH_END;
+    state.draftCriticalPathStrategy.val = DEFAULT_CRITICAL_PATH_STRATEGY;
     state.transformTemplate.val = '';
     state.draftTransformTemplate.val = '';
+    state.expandMatches.val = 'false';
+    state.hideNonMatching.val = 'false';
+    state.hideEmpty.val = 'false';
+    state.showOnlyCriticalPath.val = 'false';
     setSearchValidationError('');
+    setCriticalPathValidationError('');
     setTransformValidationError('');
     setTransformModalOpen(false);
     resetTemporalDomain(state.temporalDomainStart, state.temporalDomainEnd);
@@ -973,9 +1317,20 @@ export default function App(): JSX.Element {
     state.focusSpanIDs.val = [];
     state.search.val = '';
     state.draftSearch.val = '';
+    state.criticalPathStart.val = DEFAULT_CRITICAL_PATH_START;
+    state.criticalPathEnd.val = DEFAULT_CRITICAL_PATH_END;
+    state.criticalPathStrategy.val = DEFAULT_CRITICAL_PATH_STRATEGY;
+    state.draftCriticalPathStart.val = DEFAULT_CRITICAL_PATH_START;
+    state.draftCriticalPathEnd.val = DEFAULT_CRITICAL_PATH_END;
+    state.draftCriticalPathStrategy.val = DEFAULT_CRITICAL_PATH_STRATEGY;
     state.transformTemplate.val = '';
     state.draftTransformTemplate.val = '';
+    state.expandMatches.val = 'false';
+    state.hideNonMatching.val = 'false';
+    state.hideEmpty.val = 'false';
+    state.showOnlyCriticalPath.val = 'false';
     setSearchValidationError('');
+    setCriticalPathValidationError('');
     setTransformValidationError('');
     setTransformModalOpen(false);
     resetTemporalDomain(state.temporalDomainStart, state.temporalDomainEnd);
@@ -1003,6 +1358,11 @@ export default function App(): JSX.Element {
     state.draftSearch.val = '';
     state.search.val = '';
     setSearchValidationError('');
+  };
+
+  const recomputeCriticalPath = (): void => {
+    state.criticalPathValidationRequest.val =
+      state.criticalPathValidationRequest.val + 1;
   };
 
   const openTransformModal = (): void => {
@@ -1033,7 +1393,7 @@ export default function App(): JSX.Element {
 
   const loading = selectedTraceID === ''
     ? status.loading || corpusTraces.loading
-    : traceStatus.loading || traceDiagnostics.loading || renderedTraceResult.loading || renderedCriticalPathResult.loading || spanCausality.loading || searchValidation.loading || transformValidation.loading;
+    : traceStatus.loading || hierarchyTypes.loading || traceDiagnostics.loading || renderedTraceResult.loading || renderedCriticalPathResult.loading || spanCausality.loading || searchValidation.loading || criticalPathValidation.loading || transformValidation.loading;
 
   const corpusView = (
     <>
@@ -1066,47 +1426,13 @@ export default function App(): JSX.Element {
 
   const traceView = (
     <>
-      <section className="status-panel" aria-label="Selected trace status">
-        <div className="panel-heading">
-          <h1>Selected trace</h1>
-          <button
-            className="plain-button"
-            type="button"
-            onClick={clearSelectedTrace}
-          >
-            Back to corpus
-          </button>
-        </div>
-        <DataTable
-          data={traceStatus.data}
-          loading={traceStatus.loading}
-          withPagination={false}
-          scrollable={false}
-        />
-      </section>
-      <section
-        className="trace-panel"
-        ref={tracePanelRef}
-        aria-label="Selected trace timeline"
-      >
-        <div className="panel-heading">
-          <h2>{focusSpanIDs.length > 0 ? 'Focused span stack' : 'Timeline'}</h2>
-          <div className="panel-actions">
-            <button className="plain-button" type="button" onClick={resetZoom}>
-              Reset zoom
-            </button>
-            <span
-              className={
-                renderedTraceResult.loading ? 'status-badge busy' : 'status-badge'
-              }
-            >
-              {renderedTraceResult.loading ? 'Loading' : 'Ready'}
-            </span>
-          </div>
-        </div>
-        {focusSpanIDs.length === 0 ? (
-          <>
-            <div className="search-controls" aria-label="Trace search controls">
+      {focusSpanIDs.length === 0 ? (
+        <div className="control-grid" aria-label="Trace controls">
+          <section className="control-group" aria-label="Search within this trace">
+            <div className="control-group-heading">
+              <h2>Search within this trace</h2>
+            </div>
+            <div className="control-row">
               <label
                 className={
                   searchValidationError === ''
@@ -1144,54 +1470,203 @@ export default function App(): JSX.Element {
               <button className="plain-button" type="button" onClick={clearSearch}>
                 Clear
               </button>
-              <label className="checkbox-field">
-                <input
-                  type="checkbox"
-                  checked={expandMatches}
-                  onChange={(event) => {
-                    state.expandMatches.val = event.target.checked ? 'true' : 'false';
-                  }}
-                />
-                <span>Expand matches</span>
-              </label>
             </div>
-            <div className="critical-path-controls" aria-label="Critical path controls">
-              <label className="field compact">
+          </section>
+          <section className="control-group" aria-label="Critical path controls">
+            <div className="control-group-heading">
+              <h2>Critical path</h2>
+              {criticalPathValidationError !== '' ? (
+                <span className="field-error">{criticalPathValidationError}</span>
+              ) : (
+                <span className="status-badge">{criticalPathStrategyLabel}</span>
+              )}
+            </div>
+            <div className="critical-path-controls">
+              <label
+                className={
+                  criticalPathValidationError === ''
+                    ? 'field critical-path-endpoint'
+                    : 'field critical-path-endpoint invalid'
+                }
+              >
                 <span>CP start</span>
                 <input
-                  value={criticalPathStart}
+                  value={draftCriticalPathStart}
+                  placeholder="trace default"
                   onChange={(event) => {
-                    state.criticalPathStart.val = event.target.value;
+                    state.draftCriticalPathStart.val = event.target.value;
+                    setCriticalPathValidationError('');
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      recomputeCriticalPath();
+                    }
                   }}
                 />
               </label>
-              <label className="field compact">
+              <label
+                className={
+                  criticalPathValidationError === ''
+                    ? 'field critical-path-endpoint'
+                    : 'field critical-path-endpoint invalid'
+                }
+              >
                 <span>CP end</span>
                 <input
-                  value={criticalPathEnd}
+                  value={draftCriticalPathEnd}
+                  placeholder="trace default"
                   onChange={(event) => {
-                    state.criticalPathEnd.val = event.target.value;
+                    state.draftCriticalPathEnd.val = event.target.value;
+                    setCriticalPathValidationError('');
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      recomputeCriticalPath();
+                    }
                   }}
                 />
               </label>
-              <label className="field compact">
+              <label className="field critical-path-strategy">
                 <span>Pathing</span>
                 <select
-                  value={criticalPathStrategy}
+                  value={draftCriticalPathStrategy}
+                  disabled={criticalPathStrategies.loading}
                   onChange={(event) => {
-                    state.criticalPathStrategy.val = event.target.value;
+                    state.draftCriticalPathStrategy.val = event.target.value;
+                    setCriticalPathValidationError('');
                   }}
                 >
-                  {CRITICAL_PATH_STRATEGY_OPTIONS.map((option) => (
+                  {criticalPathStrategyOptions.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>
                   ))}
                 </select>
               </label>
+              <button
+                className="plain-button"
+                type="button"
+                disabled={criticalPathValidation.loading}
+                onClick={recomputeCriticalPath}
+              >
+                {criticalPathValidation.loading ? 'Validating' : 'Recompute'}
+              </button>
             </div>
-          </>
-        ) : null}
+          </section>
+          <section className="control-group visibility-group" aria-label="Display controls">
+            <div className="control-group-heading">
+              <h2>Display options</h2>
+            </div>
+            <div className="toggle-row">
+              <label className="field compact hierarchy-field">
+                <span>Hierarchy</span>
+                <select
+                  value={selectedHierarchyType}
+                  disabled={hierarchyTypes.loading || hierarchyOptions.length === 0}
+                  onChange={(event) => {
+                    state.focusSpanIDs.val = [];
+                    state.calledOutCategoryID.val = '';
+                    state.search.val = '';
+                    state.draftSearch.val = '';
+                    state.criticalPathStart.val = DEFAULT_CRITICAL_PATH_START;
+                    state.criticalPathEnd.val = DEFAULT_CRITICAL_PATH_END;
+                    state.draftCriticalPathStart.val = DEFAULT_CRITICAL_PATH_START;
+                    state.draftCriticalPathEnd.val = DEFAULT_CRITICAL_PATH_END;
+                    setSearchValidationError('');
+                    setCriticalPathValidationError('');
+                    state.hierarchyType.val = event.target.value;
+                  }}
+                >
+                  {hierarchyOptions.length === 0 ? (
+                    <option value={selectedHierarchyType}>
+                      {selectedHierarchyType}
+                    </option>
+                  ) : (
+                    hierarchyOptions.map((option) => (
+                      <option
+                        key={option.value}
+                        value={option.value}
+                        title={option.description}
+                      >
+                        {option.label}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </label>
+              <button
+                className={expandMatches ? 'toggle-button active' : 'toggle-button'}
+                type="button"
+                aria-pressed={expandMatches}
+                onClick={() => {
+                  state.expandMatches.val = expandMatches ? 'false' : 'true';
+                }}
+              >
+                {expandMatches ? 'Matches autoexpanded' : 'Matches not autoexpanded'}
+              </button>
+              <button
+                className={hideNonMatching ? 'toggle-button active' : 'toggle-button'}
+                type="button"
+                aria-pressed={hideNonMatching}
+                disabled={committedSearch === ''}
+                onClick={() => {
+                  state.hideNonMatching.val = hideNonMatching ? 'false' : 'true';
+                }}
+              >
+                {hideNonMatching ? 'Hiding non-matches' : 'Showing non-matches'}
+              </button>
+              <button
+                className={hideEmpty ? 'toggle-button active' : 'toggle-button'}
+                type="button"
+                aria-pressed={hideEmpty}
+                onClick={() => {
+                  state.hideEmpty.val = hideEmpty ? 'false' : 'true';
+                }}
+              >
+                {hideEmpty ? 'Hiding empty categories' : 'Showing empty categories'}
+              </button>
+              <button
+                className={
+                  showOnlyCriticalPath ? 'toggle-button active' : 'toggle-button'
+                }
+                type="button"
+                aria-pressed={showOnlyCriticalPath}
+                onClick={() => {
+                  state.showOnlyCriticalPath.val = showOnlyCriticalPath
+                    ? 'false'
+                    : 'true';
+                }}
+              >
+                {showOnlyCriticalPath
+                  ? 'Showing only critical path'
+                  : 'Showing off-critical-path work'}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+      <section
+        className="trace-panel"
+        ref={tracePanelRef}
+        aria-label="Overtime trace"
+      >
+        <div className="panel-heading">
+          <h2>Overtime trace</h2>
+          <div className="panel-actions">
+            <button className="plain-button" type="button" onClick={resetZoom}>
+              Reset zoom
+            </button>
+            <span
+              className={
+                renderedTraceResult.loading ? 'status-badge busy' : 'status-badge'
+              }
+            >
+              {renderedTraceResult.loading ? 'Loading' : 'Ready'}
+            </span>
+          </div>
+        </div>
         {focusSpanIDs.length > 0 ? (
           <div className="focus-bar" aria-label="Focused span stack controls">
             <span className="focus-head">Head: {focusSpanID}</span>
@@ -1240,7 +1715,7 @@ export default function App(): JSX.Element {
           aria-label="Overtime critical path"
         >
           <div className="panel-heading">
-            <h2>Critical path overtime</h2>
+            <h2>Overtime critical path</h2>
             <span
               className={
                 renderedCriticalPathResult.loading ? 'status-badge busy' : 'status-badge'
@@ -1301,6 +1776,24 @@ export default function App(): JSX.Element {
           />
         </section>
       ) : null}
+      <section className="table-panel trace-details-panel" aria-label="Selected trace details">
+        <div className="panel-heading">
+          <h2>Trace details</h2>
+          <span
+            className={
+              traceStatus.loading ? 'status-badge busy' : 'status-badge'
+            }
+          >
+            {traceStatus.loading ? 'Loading' : 'Ready'}
+          </span>
+        </div>
+        <DataTable
+          data={traceStatus.data}
+          loading={traceStatus.loading}
+          withPagination={false}
+          scrollable={false}
+        />
+      </section>
       <section className="table-panel" aria-label="Selected trace diagnostics">
         <div className="panel-heading">
           <h2>Nonfatal diagnostics</h2>
@@ -1324,49 +1817,61 @@ export default function App(): JSX.Element {
     <AppCoreContext.Provider value={state.core}>
       <KeypressListener interactions={keypressInteractions} />
       <main className="app-shell">
-        <section className="toolbar" aria-label="Trace source">
-          <label className="field">
-            <span>Corpus file</span>
-            <input
-              value={corpusPath}
-              onChange={(event) => {
-                setCorpusPath(event.target.value);
-              }}
-            />
-          </label>
-          {selectedTraceID !== '' ? (
-            <label className="field compact">
-              <span>Trace ID</span>
+        <section className="control-group trace-selection-group" aria-label="Trace selection">
+          <div className="control-group-heading">
+            <h2>Trace selection</h2>
+          </div>
+          <div className="toolbar">
+            <label className="field">
+              <span>Corpus file</span>
               <input
-                value={selectedTraceID}
+                value={corpusPath}
                 onChange={(event) => {
-                  state.focusSpanIDs.val = [];
-                  state.transformTemplate.val = '';
-                  state.draftTransformTemplate.val = '';
-                  setTransformValidationError('');
-                  resetTemporalDomain(
-                    state.temporalDomainStart,
-                    state.temporalDomainEnd,
-                  );
-                  state.traceID.val = event.target.value;
+                  setCorpusPath(event.target.value);
                 }}
               />
             </label>
-          ) : null}
-          {selectedTraceID !== '' ? (
-            <div className="toolbar-actions">
-              <button
-                className="plain-button"
-                type="button"
-                onClick={openTransformModal}
-              >
-                Transform
-              </button>
-              {transformTemplate !== '' ? (
-                <span className="status-badge transformed">Transformed</span>
-              ) : null}
-            </div>
-          ) : null}
+            {selectedTraceID !== '' ? (
+              <label className="field compact">
+                <span>Trace ID</span>
+                <input
+                  value={selectedTraceID}
+                  onChange={(event) => {
+                    state.focusSpanIDs.val = [];
+                    state.transformTemplate.val = '';
+                    state.draftTransformTemplate.val = '';
+                    setTransformValidationError('');
+                    resetTemporalDomain(
+                      state.temporalDomainStart,
+                      state.temporalDomainEnd,
+                    );
+                    state.traceID.val = event.target.value;
+                  }}
+                />
+              </label>
+            ) : null}
+            {selectedTraceID !== '' ? (
+              <div className="toolbar-actions">
+                <button
+                  className="plain-button"
+                  type="button"
+                  onClick={clearSelectedTrace}
+                >
+                  Back to corpus
+                </button>
+                <button
+                  className="plain-button"
+                  type="button"
+                  onClick={openTransformModal}
+                >
+                  Transform
+                </button>
+                {transformTemplate !== '' ? (
+                  <span className="status-badge transformed">Transformed</span>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
         </section>
         {selectedTraceID === '' ? corpusView : traceView}
       </main>

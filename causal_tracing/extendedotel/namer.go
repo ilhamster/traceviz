@@ -41,10 +41,9 @@ func (*Namer) SpanUniqueID(
 // HierarchyTypes returns the hierarchies supported by extended OTel traces.
 func (*Namer) HierarchyTypes() *trace.HierarchyTypes {
 	return trace.NewHierarchyTypes().
-		With(trace.SpanOnlyHierarchyType, "span", "Tracey span hierarchy").
 		With(ServiceHierarchyType, "service", "Service and operation hierarchy").
 		With(ProcessHierarchyType, "process", "Service and process hierarchy").
-		With(SpanHierarchyType, "otel_span", "One category per OTel span")
+		With(ServiceSpawnHierarchyType, "service_spawn", "Service spawning hierarchy")
 }
 
 // DependencyTypes returns dependency names supported by extended OTel traces.
@@ -54,7 +53,10 @@ func (*Namer) DependencyTypes() *trace.DependencyTypes {
 		With(trace.Return, "return", "Tracey return dependency").
 		With(DependencyLock, "lock", "Lock release to acquire dependency").
 		With(DependencyRPC, "rpc_call", "Client RPC call to server start dependency").
-		With(DependencyRPCReturn, "rpc_return", "Server finish to client RPC finish dependency")
+		With(DependencyRPCReturn, "rpc_return", "Server finish to client RPC finish dependency").
+		With(DependencySpawn, "spawn", "Tracey-style spawn dependency").
+		With(DependencySend, "send", "Tracey-style send dependency").
+		With(DependencySignal, "signal", "Tracey-style signal dependency")
 }
 
 // MomentString formats a duration-offset moment.

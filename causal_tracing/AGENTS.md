@@ -1,9 +1,29 @@
 # Causal Tracing Agent Notes
 
+## General style
+
+- Keep packages small and purpose-specific. Prefer a clean directory boundary
+  over a broad utility package.
+- Document every exported package, type, function, constant group, and
+  non-obvious behavior. Comments should describe semantics, invariants, or
+  tradeoffs, not restate syntax.
+- Avoid unnecessary abstractions. Add an abstraction only when it carries a
+  clear interface boundary, removes meaningful duplication, or protects
+  generic code from trace-format-specific semantics.
+- Avoid special-cases in generic layers. When a special-case is unavoidable,
+  keep it in the trace-format-specific adapter and document why the generic
+  model cannot express it.
+- Keep source files organized consistently: public model/API near the top,
+  followed by constructors/helpers, then private implementation details.
+- Prefer explicit names over abbreviations when readability benefits.
+- Keep TODOs specific and actionable; avoid leaving obsolete plan text in the
+  codebase.
+
 ## Interface design
 
 - Treat `RenderableTrace` and related render interfaces as the central design
-  artifact. Implement and review them before building higher-level UI features.
+  artifact. Review interface changes carefully before building higher-level UI
+  features on top of them.
 - Keep interfaces general over trace provenance. Extended OTel is one adapter,
   not the model the tool is built around.
 - Do not hard-code OTel-specific concepts into shared TraceViz React
@@ -54,3 +74,18 @@
   test cases where useful.
 - Test backend TraceViz `DataSeriesResponse` output directly where possible;
   this gives near-browser coverage without requiring a browser.
+- Use table-driven tests for parser, rendering, and data-source behavior.
+- For rendered responses, assert meaningful properties and include comments in
+  tests when a fixture expectation is subtle or surprising.
+- Add focused regression tests for parser/selector semantics, trace transforms,
+  critical path rendering, zoom clipping, and category expansion behavior when
+  changing those areas.
+
+## Validation
+
+- Prefer `bazel test //causal_tracing/...` or `pnpm run test:causal-tracing`
+  for Go/backend changes.
+- Run `pnpm --filter ./causal_tracing/react-client run build` for React
+  changes.
+- For changes that affect shared TraceViz packages or workspace build wiring,
+  follow the repository-level guidance in `../AGENTS.md`.

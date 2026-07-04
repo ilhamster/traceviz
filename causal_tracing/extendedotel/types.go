@@ -16,6 +16,9 @@ const (
 	ProcessHierarchyType
 	// SpanHierarchyType places each OTel span in its own category.
 	SpanHierarchyType
+	// ServiceSpawnHierarchyType groups spans by the service path implied by
+	// OTel CHILD_OF references.
+	ServiceSpawnHierarchyType
 )
 
 const (
@@ -30,6 +33,15 @@ const (
 	// to a client-side finish event. It is intentionally not trace.Return for
 	// the same category-scope reason as DependencyRPC.
 	DependencyRPCReturn
+	// DependencySpawn represents a Tracey-style spawn dependency encoded
+	// directly in extended OTel logs.
+	DependencySpawn
+	// DependencySend represents a Tracey-style send dependency encoded directly
+	// in extended OTel logs.
+	DependencySend
+	// DependencySignal represents a Tracey-style signal dependency encoded
+	// directly in extended OTel logs.
+	DependencySignal
 )
 
 // Trace is a Tracey wrapper for one converted extended OTel trace.
@@ -39,7 +51,7 @@ type Trace struct {
 	namer        *Namer
 	originMicros int64
 	diagnostics  []Diagnostic
-	spansByID    map[string]trace.RootSpan[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload]
+	spansByID    map[string]trace.Span[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload]
 	concurrency  map[string]*concurrency.Profile
 }
 
@@ -69,8 +81,8 @@ func (t *Trace) Diagnostics() []Diagnostic {
 	return append([]Diagnostic(nil), t.diagnostics...)
 }
 
-// SpanByID returns the converted root span for an OTel span ID.
-func (t *Trace) SpanByID(spanID string) trace.RootSpan[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload] {
+// SpanByID returns the converted span for an OTel span ID.
+func (t *Trace) SpanByID(spanID string) trace.Span[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload] {
 	return t.spansByID[spanID]
 }
 

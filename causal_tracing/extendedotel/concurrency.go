@@ -12,7 +12,7 @@ func (cs *conversionState) buildConcurrencyMaps() map[string]*concurrency.Profil
 		cs.trace,
 		ServiceHierarchyType,
 		ProcessHierarchyType,
-		SpanHierarchyType,
+		ServiceSpawnHierarchyType,
 	)
 }
 

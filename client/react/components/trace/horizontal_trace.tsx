@@ -6,7 +6,6 @@ import {
   DoubleValue,
   Duration,
   DurationValue,
-  IntegerValue,
   Interactions,
   RenderedCategory,
   RenderedTraceEdge,
@@ -39,28 +38,10 @@ import {
 
 const SOURCE = "horizontal-trace";
 
-const OPERATION_NAME_KEY = "operation_name";
-const PROCESS_ID_KEY = "process_id";
-const SERVICE_NAME_KEY = "service_name";
-const SPAN_ID_KEY = "span_id";
-const SPAN_KIND_KEY = "span_kind";
-const SPAN_NAME_KEY = "span_name";
-const SUBSPAN_KIND_KEY = "subspan_kind";
-const TRACE_START_KEY = "trace_start";
-const TRACE_END_KEY = "trace_end";
+const DETAIL_FORMAT_KEY = "detail_format";
+const TOOLTIP_KEY = "tooltip";
 const CALLED_OUT_CATEGORY_BAND_COLOR = "#aaa";
 const CALLED_OUT_CATEGORY_BAND_OPACITY = 0.35;
-const CAUSAL_EVENT_COUNT_KEY = "causal_event_count";
-const SUSPEND_COUNT_KEY = "suspend_count";
-const CONCURRENCY_AVG_KEY = "concurrency_avg";
-const CONCURRENCY_PEAK_KEY = "concurrency_peak";
-const EVENT_DEPENDENCY_KEY = "event_dependency_key";
-const EVENT_DEPENDENCY_TYPE_KEY = "event_dependency_type";
-const EVENT_DETAIL_KEY = "event_detail";
-const EVENT_DISPLAY_NAME_KEY = "event_display_name";
-const EVENT_LABEL_KEY = "event_label";
-const EVENT_TIME_KEY = "event_time";
-const EVENT_TYPE_KEY = "event_type";
 export const TRACE_SPANS_TARGET = "trace_spans";
 export const TRACE_SPAN_CLICK_ACTION = "click";
 export const TRACE_CHART_TARGET = "chart";
@@ -81,138 +62,14 @@ type CalledOutCategoryState = {
   value: Value;
 };
 
-function optionalString(properties: RenderedTraceSpan["properties"], key: string): string | null {
-	if (!properties.has(key)) {
-		return null;
-	}
-	return properties.expectString(key);
-}
-
-function optionalInteger(properties: RenderedTraceSpan["properties"], key: string): number | null {
-	if (!properties.has(key)) {
-		return null;
-	}
-	const value = properties.get(key);
-	if (value instanceof IntegerValue) {
-		return value.val;
-	}
-	return null;
-}
-
-function optionalDouble(properties: RenderedTraceSpan["properties"], key: string): number | null {
-	if (!properties.has(key)) {
-		return null;
-	}
-	const value = properties.get(key);
-	if (value instanceof DoubleValue) {
-		return value.val;
-	}
-	return null;
-}
-
-function valueDifferenceString(start: Value, end: Value): string | null {
-  if (start instanceof DurationValue && end instanceof DurationValue) {
-    return end.val.sub(start.val).toString();
-  }
-  if (start instanceof TimestampValue && end instanceof TimestampValue) {
-    return end.val.sub(start.val).toString();
-  }
-  if (
-    (start instanceof IntegerValue || start instanceof DoubleValue) &&
-    (end instanceof IntegerValue || end instanceof DoubleValue)
-  ) {
-    return (end.val - start.val).toString();
-  }
-  return null;
-}
-
 function spanTooltip(span: RenderedTraceSpan): string {
-  const name =
-    optionalString(span.properties, SPAN_NAME_KEY) || getLabel(span.properties);
-  const serviceName = optionalString(span.properties, SERVICE_NAME_KEY);
-  const operationName = optionalString(span.properties, OPERATION_NAME_KEY);
-	const spanID = optionalString(span.properties, SPAN_ID_KEY);
-	const spanKind = optionalString(span.properties, SPAN_KIND_KEY);
-	const processID = optionalString(span.properties, PROCESS_ID_KEY);
-	const subspanKind = optionalString(span.properties, SUBSPAN_KIND_KEY);
-	const suspendCount = optionalInteger(span.properties, SUSPEND_COUNT_KEY);
-	const causalEventCount = optionalInteger(span.properties, CAUSAL_EVENT_COUNT_KEY);
-	const concurrencyAvg = optionalDouble(span.properties, CONCURRENCY_AVG_KEY);
-	const concurrencyPeak = optionalInteger(span.properties, CONCURRENCY_PEAK_KEY);
-	const eventDisplayName = optionalString(span.properties, EVENT_DISPLAY_NAME_KEY);
-	const eventType = optionalString(span.properties, EVENT_TYPE_KEY);
-	const eventTime = optionalString(span.properties, EVENT_TIME_KEY);
-	const eventLabel = optionalString(span.properties, EVENT_LABEL_KEY);
-	const eventDependencyType = optionalString(span.properties, EVENT_DEPENDENCY_TYPE_KEY);
-	const eventDependencyKey = optionalString(span.properties, EVENT_DEPENDENCY_KEY);
-	const eventDetail = optionalString(span.properties, EVENT_DETAIL_KEY);
-	const lines: string[] = [];
-  if (name) {
-    lines.push(name);
+  if (span.properties.has(TOOLTIP_KEY)) {
+    return span.properties.expectString(TOOLTIP_KEY);
   }
-  if (spanKind || subspanKind) {
-    lines.push(`Kind: ${subspanKind || spanKind}`);
+  if (span.properties.has(DETAIL_FORMAT_KEY)) {
+    return span.properties.format(span.properties.expectString(DETAIL_FORMAT_KEY));
   }
-	if (eventDisplayName) {
-		lines.push(`Event: ${eventDisplayName}`);
-	}
-	if (eventType) {
-		lines.push(`Event type: ${eventType}`);
-	}
-	if (eventTime) {
-		lines.push(`Event time: ${eventTime}`);
-	}
-	if (eventLabel) {
-		lines.push(`Label: ${eventLabel}`);
-	}
-	if (eventDependencyType) {
-		lines.push(`Dependency: ${eventDependencyType}`);
-	}
-	if (eventDependencyKey) {
-		lines.push(`Dependency key: ${eventDependencyKey}`);
-	}
-	if (eventDetail) {
-		lines.push(eventDetail);
-	}
-  if (spanID) {
-    lines.push(`Span ID: ${spanID}`);
-  }
-  if (serviceName) {
-    lines.push(`Service: ${serviceName}`);
-  }
-  if (processID) {
-    lines.push(`Process: ${processID}`);
-  }
-	if (operationName && operationName !== name) {
-		lines.push(`Operation: ${operationName}`);
-	}
-	if (suspendCount !== null) {
-		lines.push(`Suspends: ${suspendCount}`);
-	}
-	if (causalEventCount !== null) {
-		lines.push(`Causal events: ${causalEventCount}`);
-	}
-	if (concurrencyAvg !== null) {
-		lines.push(`Avg concurrency: ${concurrencyAvg.toFixed(2)}`);
-	}
-	if (concurrencyPeak !== null) {
-		lines.push(`Peak concurrency: ${concurrencyPeak}`);
-	}
-	if (
-    span.properties.has(TRACE_START_KEY) &&
-    span.properties.has(TRACE_END_KEY)
-  ) {
-    const start = span.properties.get(TRACE_START_KEY);
-    const end = span.properties.get(TRACE_END_KEY);
-    const duration = valueDifferenceString(start, end);
-    if (duration) {
-      lines.push(`Duration: ${duration}`);
-    } else {
-      lines.push(`Start: ${start.toString()}`);
-      lines.push(`End: ${end.toString()}`);
-    }
-  }
-  return lines.join("\n");
+  return getLabel(span.properties);
 }
 
 function calledOutCategory(
@@ -435,7 +292,8 @@ export function HorizontalTrace<T>(
     svg
       .select<SVGGElement>(".edges")
       .attr("width", traceAreaWidthPx)
-      .attr("height", heightPx);
+      .attr("height", heightPx)
+      .style("pointer-events", "none");
     svg
       .select<SVGGElement>(".brush")
       .attr("width", traceAreaWidthPx)

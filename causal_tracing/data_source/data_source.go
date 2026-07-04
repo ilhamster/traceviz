@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/golang-lru/simplelru"
@@ -14,6 +16,8 @@ import (
 	"github.com/ilhamster/traceviz/server/go/category"
 	"github.com/ilhamster/traceviz/server/go/table"
 	"github.com/ilhamster/traceviz/server/go/util"
+	criticalpath "github.com/ilhamster/tracey/critical_path"
+	"github.com/ilhamster/tracey/trace"
 	traceparser "github.com/ilhamster/tracey/trace/parser"
 )
 
@@ -32,6 +36,13 @@ const (
 	// traceStatusQuery returns selected trace status as a TraceViz table with
 	// one row. It consumes corpus_path and trace_id.
 	traceStatusQuery = "causal_tracing.trace_status"
+	// hierarchyTypesQuery returns the category hierarchies supported by the
+	// selected trace. It consumes corpus_path, trace_id, and transform_template.
+	hierarchyTypesQuery = "causal_tracing.hierarchy_types"
+	// criticalPathStrategiesQuery returns the critical path strategies supported
+	// by the selected trace. It consumes corpus_path, trace_id, and
+	// transform_template.
+	criticalPathStrategiesQuery = "causal_tracing.critical_path_strategies"
 	// traceDiagnosticsQuery returns selected-trace nonfatal conversion
 	// diagnostics as a TraceViz table with one row per diagnostic. It consumes
 	// corpus_path and trace_id.
@@ -40,9 +51,10 @@ const (
 	// data model. It consumes corpus_path and trace_id, and accepts
 	// expanded_category_ids, focus_span_ids, temporal_domain_start, and
 	// temporal_domain_end, search, and expand_matches as ambient global filters.
-	// It also consumes
-	// critical_path_start, critical_path_end, and critical_path_strategy to
-	// render the main-trace critical path overlay. It accepts trace_view_width_px
+	// It also consumes hide_non_matching, hide_empty,
+	// show_only_critical_path, critical_path_start, critical_path_end, and
+	// critical_path_strategy to render the main-trace critical path overlay and
+	// optional critical-path visibility filter. It accepts trace_view_width_px
 	// as a query parameter. When focus_span_ids is present, it renders the
 	// focused span stack and required ancestry.
 	traceQuery = "causal_tracing.trace"
@@ -65,50 +77,70 @@ const (
 	// not request errors; successful responses populate the transformed trace
 	// cache for subsequent committed trace requests.
 	validateTransformQuery = "causal_tracing.validate_transform"
+	// validateCriticalPathQuery validates the current draft critical-path
+	// endpoint and strategy controls against the selected trace. Parse,
+	// ambiguity, and no-match failures are ordinary response data, not request
+	// errors.
+	validateCriticalPathQuery = "causal_tracing.validate_critical_path"
 
-	corpusPathKey           = "corpus_path"
-	expandedCategoryIDsKey  = "expanded_category_ids"
-	focusSpanIDsKey         = "focus_span_ids"
-	tracePathKey            = "trace_path"
-	statusKey               = "status"
-	causalityKindKey        = "kind"
-	causalityTypeKey        = "type"
-	messageKey              = "message"
-	traceIDKey              = "trace_id"
-	spanIDKey               = "span_id"
-	causalityTimeKey        = "time"
-	traceCountKey           = "trace_count"
-	spanCountKey            = "span_count"
-	diagnosticCountKey      = "diagnostic_count"
-	durationKey             = "duration"
-	labelKey                = "label"
-	dependencyTypeKey       = "dependency_type"
-	dependencyKeyKey        = "dependency_key"
-	otherSpanIDKey          = "other_span_id"
-	detailKey               = "detail"
-	serviceCountKey         = "service_count"
-	traceViewWidthPxKey     = "trace_view_width_px"
-	temporalDomainStartKey  = "temporal_domain_start"
-	temporalDomainEndKey    = "temporal_domain_end"
-	criticalPathStartKey    = "critical_path_start"
-	criticalPathEndKey      = "critical_path_end"
-	criticalPathStrategyKey = "critical_path_strategy"
-	searchKey               = "search"
-	draftSearchKey          = "draft_search"
-	transformTemplateKey    = "transform_template"
-	draftTransformKey       = "draft_transform_template"
-	expandMatchesKey        = "expand_matches"
+	corpusPathKey                = "corpus_path"
+	expandedCategoryIDsKey       = "expanded_category_ids"
+	focusSpanIDsKey              = "focus_span_ids"
+	tracePathKey                 = "trace_path"
+	statusKey                    = "status"
+	causalityKindKey             = "kind"
+	causalityTypeKey             = "type"
+	messageKey                   = "message"
+	traceIDKey                   = "trace_id"
+	spanIDKey                    = "span_id"
+	causalityTimeKey             = "time"
+	traceCountKey                = "trace_count"
+	spanCountKey                 = "span_count"
+	diagnosticCountKey           = "diagnostic_count"
+	durationKey                  = "duration"
+	labelKey                     = "label"
+	dependencyTypeKey            = "dependency_type"
+	dependencyKeyKey             = "dependency_key"
+	otherSpanIDKey               = "other_span_id"
+	detailKey                    = "detail"
+	serviceCountKey              = "service_count"
+	hierarchyTypeKey             = "hierarchy_type"
+	hierarchyNameKey             = "hierarchy_name"
+	hierarchyDescriptionKey      = "hierarchy_description"
+	traceViewWidthPxKey          = "trace_view_width_px"
+	temporalDomainStartKey       = "temporal_domain_start"
+	temporalDomainEndKey         = "temporal_domain_end"
+	criticalPathStartKey         = "critical_path_start"
+	criticalPathEndKey           = "critical_path_end"
+	criticalPathStrategyKey      = "critical_path_strategy"
+	criticalPathStrategyNameKey  = "critical_path_strategy_name"
+	criticalPathStrategyDescKey  = "critical_path_strategy_description"
+	draftCriticalPathStartKey    = "draft_critical_path_start"
+	draftCriticalPathEndKey      = "draft_critical_path_end"
+	draftCriticalPathStrategyKey = "draft_critical_path_strategy"
+	searchKey                    = "search"
+	draftSearchKey               = "draft_search"
+	transformTemplateKey         = "transform_template"
+	draftTransformKey            = "draft_transform_template"
+	expandMatchesKey             = "expand_matches"
+	hideNonMatchingKey           = "hide_non_matching"
+	hideEmptyKey                 = "hide_empty"
+	showOnlyCriticalPathKey      = "show_only_critical_path"
 )
 
 var (
-	statusCol   = table.Column(category.New(statusKey, "Status", "Whether the trace file loaded and converted successfully."))
-	pathCol     = table.Column(category.New(corpusPathKey, "Corpus File", "The corpus file requested from the backend."))
-	tracesCol   = table.Column(category.New(traceCountKey, "Traces", "The number of traces converted from the response."))
-	spansCol    = table.Column(category.New(spanCountKey, "Spans", "The number of OTel spans converted into Tracey root spans."))
-	diagsCol    = table.Column(category.New(diagnosticCountKey, "Diagnostics", "The number of non-fatal conversion diagnostics."))
-	durationCol = table.Column(category.New(durationKey, "Duration", "The trace duration from the earliest span start to the latest span end."))
-	servicesCol = table.Column(category.New(serviceCountKey, "Services", "The number of services observed in this trace."))
-	msgCol      = table.Column(category.New(messageKey, "Message", "Additional load or conversion detail."))
+	statusCol               = table.Column(category.New(statusKey, "Status", "Whether the trace file loaded and converted successfully."))
+	pathCol                 = table.Column(category.New(corpusPathKey, "Corpus File", "The corpus file requested from the backend."))
+	tracesCol               = table.Column(category.New(traceCountKey, "Traces", "The number of traces converted from the response."))
+	spansCol                = table.Column(category.New(spanCountKey, "Spans", "The number of OTel spans converted into Tracey root spans."))
+	diagsCol                = table.Column(category.New(diagnosticCountKey, "Diagnostics", "The number of non-fatal conversion diagnostics."))
+	durationCol             = table.Column(category.New(durationKey, "Duration", "The trace duration from the earliest span start to the latest span end."))
+	servicesCol             = table.Column(category.New(serviceCountKey, "Services", "The number of services observed in this trace."))
+	msgCol                  = table.Column(category.New(messageKey, "Message", "Additional load or conversion detail."))
+	hierarchyNameCol        = table.Column(category.New(hierarchyNameKey, "Name", "The Tracey hierarchy type name."))
+	hierarchyDescriptionCol = table.Column(category.New(hierarchyDescriptionKey, "Description", "The hierarchy type description."))
+	strategyNameCol         = table.Column(category.New(criticalPathStrategyNameKey, "Name", "The Tracey critical path strategy name."))
+	strategyDescriptionCol  = table.Column(category.New(criticalPathStrategyDescKey, "Description", "The critical path strategy description."))
 
 	diagTraceCol = table.Column(category.New(traceIDKey, "Trace ID", "The trace containing the diagnostic."))
 	diagSpanCol  = table.Column(category.New(spanIDKey, "Span ID", "The span containing the diagnostic, if known."))
@@ -141,13 +173,8 @@ type Collection struct {
 	Raw                *extendedotel.RawResponse
 	Converted          []*extendedotel.Trace
 	convertedByTraceID map[string]*extendedotel.Trace
+	mu                 sync.Mutex
 	traceVariants      map[string]*extendedotel.Trace
-}
-
-// TraceVariantKey identifies a loaded trace variant. Empty transform templates
-// identify the base trace.
-type TraceVariantKey interface {
-	fmt.Stringer
 }
 
 type corpusTraceVariantKey struct {
@@ -184,9 +211,9 @@ func (f *FileTraceFetcher) Fetch(ctx context.Context, tracePath string) (*Collec
 		return nil, ctx.Err()
 	default:
 	}
-	resolvedPath := tracePath
-	if f.root != "" && !filepath.IsAbs(tracePath) {
-		resolvedPath = filepath.Join(f.root, tracePath)
+	resolvedPath, err := f.resolveTracePath(tracePath)
+	if err != nil {
+		return nil, err
 	}
 	raw, err := extendedotel.LoadRawResponseFile(resolvedPath)
 	if err != nil {
@@ -197,6 +224,32 @@ func (f *FileTraceFetcher) Fetch(ctx context.Context, tracePath string) (*Collec
 		return nil, err
 	}
 	return newCollection(tracePath, raw, converted), nil
+}
+
+func (f *FileTraceFetcher) resolveTracePath(tracePath string) (string, error) {
+	if f.root == "" {
+		return tracePath, nil
+	}
+	root, err := filepath.Abs(f.root)
+	if err != nil {
+		return "", err
+	}
+	cleanTracePath := filepath.Clean(tracePath)
+	if !filepath.IsAbs(cleanTracePath) {
+		cleanTracePath = filepath.Join(root, cleanTracePath)
+	}
+	resolvedPath, err := filepath.Abs(cleanTracePath)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(root, resolvedPath)
+	if err != nil {
+		return "", err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("trace path %q escapes trace root %q", tracePath, f.root)
+	}
+	return resolvedPath, nil
 }
 
 func newCollection(path string, raw *extendedotel.RawResponse, converted []*extendedotel.Trace) *Collection {
@@ -231,14 +284,19 @@ func (c *Collection) convertedTrace(traceID string, transformTemplate string) (*
 		traceID:           traceID,
 		transformTemplate: transformTemplate,
 	}
+	c.mu.Lock()
 	if cachedVariant := c.traceVariants[key.String()]; cachedVariant != nil {
+		c.mu.Unlock()
 		return cachedVariant, nil
 	}
+	c.mu.Unlock()
 	transformedTrace, err := convertedTrace.TransformTemplate(transformTemplate)
 	if err != nil {
 		return nil, err
 	}
+	c.mu.Lock()
 	c.traceVariants[key.String()] = transformedTrace
+	c.mu.Unlock()
 	return transformedTrace, nil
 }
 
@@ -248,6 +306,7 @@ type DataSource struct {
 	defaultTracePath string
 	fetcher          TraceFetcher
 
+	mu  sync.Mutex
 	lru *simplelru.LRU
 }
 
@@ -273,12 +332,15 @@ func (ds *DataSource) SupportedDataSeriesQueries() []string {
 		loadDiagnosticsQuery,
 		corpusTracesQuery,
 		traceStatusQuery,
+		hierarchyTypesQuery,
+		criticalPathStrategiesQuery,
 		traceDiagnosticsQuery,
 		traceQuery,
 		criticalPathTraceQuery,
 		spanCausalityQuery,
 		validateSearchQuery,
 		validateTransformQuery,
+		validateCriticalPathQuery,
 	}
 }
 
@@ -389,6 +451,28 @@ func criticalPathControls(globalFilters map[string]*util.V) (start, end, strateg
 	return start, end, strategy, nil
 }
 
+func draftCriticalPathControls(globalFilters map[string]*util.V) (start, end, strategy string, err error) {
+	if startValue, ok := globalFilters[draftCriticalPathStartKey]; ok {
+		start, err = util.ExpectStringValue(startValue)
+		if err != nil {
+			return "", "", "", fmt.Errorf("global filter %q must be a string: %w", draftCriticalPathStartKey, err)
+		}
+	}
+	if endValue, ok := globalFilters[draftCriticalPathEndKey]; ok {
+		end, err = util.ExpectStringValue(endValue)
+		if err != nil {
+			return "", "", "", fmt.Errorf("global filter %q must be a string: %w", draftCriticalPathEndKey, err)
+		}
+	}
+	if strategyValue, ok := globalFilters[draftCriticalPathStrategyKey]; ok {
+		strategy, err = util.ExpectStringValue(strategyValue)
+		if err != nil {
+			return "", "", "", fmt.Errorf("global filter %q must be a string: %w", draftCriticalPathStrategyKey, err)
+		}
+	}
+	return start, end, strategy, nil
+}
+
 func searchControls(globalFilters map[string]*util.V) (search string, expandMatches bool, err error) {
 	if searchValue, ok := globalFilters[searchKey]; ok {
 		search, err = util.ExpectStringValue(searchValue)
@@ -397,20 +481,49 @@ func searchControls(globalFilters map[string]*util.V) (search string, expandMatc
 		}
 	}
 	if expandMatchesValue, ok := globalFilters[expandMatchesKey]; ok {
-		expandMatchesString, err := util.ExpectStringValue(expandMatchesValue)
+		expandMatches, err = expectStringBoolGlobalFilter(expandMatchesKey, expandMatchesValue)
 		if err != nil {
-			return "", false, fmt.Errorf("global filter %q must be a string bool: %w", expandMatchesKey, err)
-		}
-		switch expandMatchesString {
-		case "true":
-			expandMatches = true
-		case "", "false":
-			expandMatches = false
-		default:
-			return "", false, fmt.Errorf("global filter %q must be \"true\" or \"false\"", expandMatchesKey)
+			return "", false, err
 		}
 	}
 	return search, expandMatches, nil
+}
+
+func displayControls(globalFilters map[string]*util.V) (hideNonMatching, hideEmpty, showOnlyCriticalPath bool, err error) {
+	if hideNonMatchingValue, ok := globalFilters[hideNonMatchingKey]; ok {
+		hideNonMatching, err = expectStringBoolGlobalFilter(hideNonMatchingKey, hideNonMatchingValue)
+		if err != nil {
+			return false, false, false, err
+		}
+	}
+	if hideEmptyValue, ok := globalFilters[hideEmptyKey]; ok {
+		hideEmpty, err = expectStringBoolGlobalFilter(hideEmptyKey, hideEmptyValue)
+		if err != nil {
+			return false, false, false, err
+		}
+	}
+	if showOnlyCriticalPathValue, ok := globalFilters[showOnlyCriticalPathKey]; ok {
+		showOnlyCriticalPath, err = expectStringBoolGlobalFilter(showOnlyCriticalPathKey, showOnlyCriticalPathValue)
+		if err != nil {
+			return false, false, false, err
+		}
+	}
+	return hideNonMatching, hideEmpty, showOnlyCriticalPath, nil
+}
+
+func expectStringBoolGlobalFilter(key string, value *util.V) (bool, error) {
+	stringValue, err := util.ExpectStringValue(value)
+	if err != nil {
+		return false, fmt.Errorf("global filter %q must be a string bool: %w", key, err)
+	}
+	switch stringValue {
+	case "true":
+		return true, nil
+	case "", "false":
+		return false, nil
+	default:
+		return false, fmt.Errorf("global filter %q must be \"true\" or \"false\"", key)
+	}
 }
 
 func draftSearch(globalFilters map[string]*util.V) (string, error) {
@@ -449,19 +562,44 @@ func draftTransformTemplate(globalFilters map[string]*util.V) (string, error) {
 	return template, nil
 }
 
+func hierarchyName(globalFilters map[string]*util.V) (string, error) {
+	hierarchyValue, ok := globalFilters[hierarchyTypeKey]
+	if !ok {
+		return "", nil
+	}
+	hierarchyName, err := util.ExpectStringValue(hierarchyValue)
+	if err != nil {
+		return "", fmt.Errorf("global filter %q must be a string: %w", hierarchyTypeKey, err)
+	}
+	return hierarchyName, nil
+}
+
 func (ds *DataSource) fetchCollection(ctx context.Context, tracePath string) (*Collection, error) {
+	ds.mu.Lock()
 	if collIf, ok := ds.lru.Get(tracePath); ok {
+		ds.mu.Unlock()
 		coll, ok := collIf.(*Collection)
 		if !ok {
 			return nil, fmt.Errorf("cached corpus %q has unexpected type %T", tracePath, collIf)
 		}
 		return coll, nil
 	}
+	ds.mu.Unlock()
 	coll, err := ds.fetcher.Fetch(ctx, tracePath)
 	if err != nil {
 		return nil, err
 	}
+	ds.mu.Lock()
+	if collIf, ok := ds.lru.Get(tracePath); ok {
+		ds.mu.Unlock()
+		cachedColl, ok := collIf.(*Collection)
+		if !ok {
+			return nil, fmt.Errorf("cached corpus %q has unexpected type %T", tracePath, collIf)
+		}
+		return cachedColl, nil
+	}
 	ds.lru.Add(tracePath, coll)
+	ds.mu.Unlock()
 	return coll, nil
 }
 
@@ -482,10 +620,13 @@ func (ds *DataSource) HandleDataSeriesRequests(
 	selectedExpandedCategoryIDs, expandedCategoryIDsErr := expandedCategoryIDs(globalFilters)
 	selectedTemporalDomain, temporalDomainErr := temporalDomain(globalFilters)
 	criticalPathStart, criticalPathEnd, criticalPathStrategy, criticalPathControlsErr := criticalPathControls(globalFilters)
+	draftCriticalPathStart, draftCriticalPathEnd, draftCriticalPathStrategy, draftCriticalPathControlsErr := draftCriticalPathControls(globalFilters)
 	search, expandMatches, searchControlsErr := searchControls(globalFilters)
+	hideNonMatching, hideEmpty, showOnlyCriticalPath, displayControlsErr := displayControls(globalFilters)
 	searchDraft, draftSearchErr := draftSearch(globalFilters)
 	committedTransformTemplate, transformTemplateErr := transformTemplate(globalFilters)
 	draftTransformTemplate, draftTransformErr := draftTransformTemplate(globalFilters)
+	selectedHierarchyName, hierarchyNameErr := hierarchyName(globalFilters)
 	var coll *Collection
 	var loadErr error
 	if corpusPathErr != nil {
@@ -500,14 +641,20 @@ func (ds *DataSource) HandleDataSeriesRequests(
 		loadErr = temporalDomainErr
 	} else if criticalPathControlsErr != nil {
 		loadErr = criticalPathControlsErr
+	} else if draftCriticalPathControlsErr != nil {
+		loadErr = draftCriticalPathControlsErr
 	} else if searchControlsErr != nil {
 		loadErr = searchControlsErr
+	} else if displayControlsErr != nil {
+		loadErr = displayControlsErr
 	} else if draftSearchErr != nil {
 		loadErr = draftSearchErr
 	} else if transformTemplateErr != nil {
 		loadErr = transformTemplateErr
 	} else if draftTransformErr != nil {
 		loadErr = draftTransformErr
+	} else if hierarchyNameErr != nil {
+		loadErr = hierarchyNameErr
 	} else {
 		coll, loadErr = ds.fetchCollection(ctx, corpusPath)
 	}
@@ -522,20 +669,24 @@ func (ds *DataSource) HandleDataSeriesRequests(
 			handleCorpusTracesQuery(series, coll, loadErr)
 		case traceStatusQuery:
 			handleTraceStatusQuery(series, coll, selectedTraceID, committedTransformTemplate, loadErr)
+		case hierarchyTypesQuery:
+			handleHierarchyTypesQuery(series, coll, selectedTraceID, committedTransformTemplate, loadErr)
+		case criticalPathStrategiesQuery:
+			handleCriticalPathStrategiesQuery(series, coll, selectedTraceID, committedTransformTemplate, loadErr)
 		case traceDiagnosticsQuery:
 			handleTraceDiagnosticsQuery(series, coll, selectedTraceID, committedTransformTemplate, loadErr)
 		case traceQuery:
 			if loadErr != nil {
 				return loadErr
 			}
-			if err := handleTraceQuery(ctx, series, req.Options, coll, selectedTraceID, committedTransformTemplate, selectedFocusSpanIDs, selectedExpandedCategoryIDs, selectedTemporalDomain, criticalPathStart, criticalPathEnd, criticalPathStrategy, search, expandMatches); err != nil {
+			if err := handleTraceQuery(ctx, series, req.Options, coll, selectedTraceID, committedTransformTemplate, selectedHierarchyName, selectedFocusSpanIDs, selectedExpandedCategoryIDs, selectedTemporalDomain, criticalPathStart, criticalPathEnd, criticalPathStrategy, search, expandMatches, hideNonMatching, hideEmpty, showOnlyCriticalPath); err != nil {
 				return err
 			}
 		case criticalPathTraceQuery:
 			if loadErr != nil {
 				return loadErr
 			}
-			if err := handleCriticalPathTraceQuery(ctx, series, req.Options, coll, selectedTraceID, committedTransformTemplate, selectedTemporalDomain, criticalPathStart, criticalPathEnd, criticalPathStrategy); err != nil {
+			if err := handleCriticalPathTraceQuery(ctx, series, req.Options, coll, selectedTraceID, committedTransformTemplate, selectedHierarchyName, selectedTemporalDomain, criticalPathStart, criticalPathEnd, criticalPathStrategy); err != nil {
 				return err
 			}
 		case spanCausalityQuery:
@@ -549,12 +700,17 @@ func (ds *DataSource) HandleDataSeriesRequests(
 			if loadErr != nil {
 				return loadErr
 			}
-			handleValidateSearchQuery(series, searchDraft)
+			handleValidateSearchQuery(series, coll, selectedTraceID, committedTransformTemplate, selectedHierarchyName, searchDraft)
 		case validateTransformQuery:
 			if loadErr != nil {
 				return loadErr
 			}
 			handleValidateTransformQuery(series, coll, selectedTraceID, draftTransformTemplate)
+		case validateCriticalPathQuery:
+			if loadErr != nil {
+				return loadErr
+			}
+			handleValidateCriticalPathQuery(ctx, series, coll, selectedTraceID, committedTransformTemplate, selectedHierarchyName, draftCriticalPathStart, draftCriticalPathEnd, draftCriticalPathStrategy)
 		default:
 			return fmt.Errorf("unsupported data query %q", req.QueryName)
 		}
@@ -562,7 +718,14 @@ func (ds *DataSource) HandleDataSeriesRequests(
 	return nil
 }
 
-func handleValidateSearchQuery(db util.DataBuilder, searchDraft string) {
+func handleValidateSearchQuery(
+	db util.DataBuilder,
+	coll *Collection,
+	selectedTraceID string,
+	transformTemplate string,
+	selectedHierarchyName string,
+	searchDraft string,
+) {
 	if searchDraft == "" {
 		db.With(
 			util.StringProperty(statusKey, "ok"),
@@ -571,7 +734,28 @@ func handleValidateSearchQuery(db util.DataBuilder, searchDraft string) {
 		)
 		return
 	}
-	if _, err := traceparser.ParseSpanSpecifierPatterns(extendedotel.ServiceHierarchyType, searchDraft); err != nil {
+	hierarchyType := extendedotel.ServiceHierarchyType
+	if coll != nil && selectedTraceID != "" {
+		convertedTrace, err := coll.convertedTrace(selectedTraceID, transformTemplate)
+		if err != nil {
+			db.With(
+				util.StringProperty(statusKey, "error"),
+				util.StringProperty(draftSearchKey, searchDraft),
+				util.StringProperty(messageKey, err.Error()),
+			)
+			return
+		}
+		hierarchyType, err = resolveHierarchyType(convertedTrace, selectedHierarchyName)
+		if err != nil {
+			db.With(
+				util.StringProperty(statusKey, "error"),
+				util.StringProperty(draftSearchKey, searchDraft),
+				util.StringProperty(messageKey, err.Error()),
+			)
+			return
+		}
+	}
+	if _, err := traceparser.ParseSpanSpecifierPatterns(hierarchyType, searchDraft); err != nil {
 		db.With(
 			util.StringProperty(statusKey, "error"),
 			util.StringProperty(draftSearchKey, searchDraft),
@@ -615,6 +799,147 @@ func handleValidateTransformQuery(
 	)
 }
 
+func handleHierarchyTypesQuery(
+	db util.DataBuilder,
+	coll *Collection,
+	selectedTraceID string,
+	transformTemplate string,
+	loadErr error,
+) {
+	hierarchyTable := table.New(
+		db,
+		loadDiagnosticsRenderSettings,
+		hierarchyNameCol,
+		hierarchyDescriptionCol,
+	)
+	if loadErr != nil || coll == nil || selectedTraceID == "" {
+		return
+	}
+	convertedTrace, err := coll.convertedTrace(selectedTraceID, transformTemplate)
+	if err != nil {
+		hierarchyTable.Row(
+			table.Cell(hierarchyNameCol, util.String("error")),
+			table.Cell(hierarchyDescriptionCol, util.String(err.Error())),
+		).With(util.StringProperty(statusKey, "error"))
+		return
+	}
+	for _, hierarchyData := range convertedTrace.RenderableTrace().HierarchyTypes().OrderedTypeData() {
+		hierarchyTable.Row(
+			table.Cell(hierarchyNameCol, util.String(hierarchyData.Name)),
+			table.Cell(hierarchyDescriptionCol, util.String(hierarchyData.Description)),
+		).With(
+			util.StringProperty(hierarchyTypeKey, hierarchyData.Name),
+			util.StringProperty(hierarchyNameKey, hierarchyData.Name),
+			util.StringProperty(hierarchyDescriptionKey, hierarchyData.Description),
+		)
+	}
+}
+
+func handleCriticalPathStrategiesQuery(
+	db util.DataBuilder,
+	coll *Collection,
+	selectedTraceID string,
+	transformTemplate string,
+	loadErr error,
+) {
+	strategyTable := table.New(
+		db,
+		loadDiagnosticsRenderSettings,
+		strategyNameCol,
+		strategyDescriptionCol,
+	)
+	if loadErr != nil || coll == nil || selectedTraceID == "" {
+		return
+	}
+	if _, err := coll.convertedTrace(selectedTraceID, transformTemplate); err != nil {
+		strategyTable.Row(
+			table.Cell(strategyNameCol, util.String("error")),
+			table.Cell(strategyDescriptionCol, util.String(err.Error())),
+		).With(util.StringProperty(statusKey, "error"))
+		return
+	}
+	for _, strategyData := range criticalpath.CommonStrategies.OrderedTypeData() {
+		strategyTable.Row(
+			table.Cell(strategyNameCol, util.String(strategyData.Name)),
+			table.Cell(strategyDescriptionCol, util.String(strategyData.Description)),
+		).With(
+			util.StringProperty(criticalPathStrategyKey, strategyData.Description),
+			util.StringProperty(criticalPathStrategyNameKey, strategyData.Name),
+			util.StringProperty(criticalPathStrategyDescKey, strategyData.Description),
+		)
+	}
+}
+
+func resolveHierarchyType(convertedTrace *extendedotel.Trace, hierarchyName string) (trace.HierarchyType, error) {
+	if convertedTrace == nil {
+		return 0, fmt.Errorf("trace is not loaded")
+	}
+	if hierarchyName == "" {
+		hierarchyName = "service"
+	}
+	hierarchyData, err := convertedTrace.RenderableTrace().HierarchyTypes().ByName(hierarchyName)
+	if err != nil {
+		return 0, err
+	}
+	return hierarchyData.Type, nil
+}
+
+func handleValidateCriticalPathQuery(
+	ctx context.Context,
+	db util.DataBuilder,
+	coll *Collection,
+	selectedTraceID string,
+	transformTemplate string,
+	selectedHierarchyName string,
+	draftStart string,
+	draftEnd string,
+	draftStrategy string,
+) {
+	if coll == nil {
+		writeCriticalPathValidationStatus(db, "error", draftStart, draftEnd, draftStrategy, "corpus is not loaded")
+		return
+	}
+	convertedTrace, err := coll.convertedTrace(selectedTraceID, transformTemplate)
+	if err != nil {
+		writeCriticalPathValidationStatus(db, "error", draftStart, draftEnd, draftStrategy, err.Error())
+		return
+	}
+	hierarchyType, err := resolveHierarchyType(convertedTrace, selectedHierarchyName)
+	if err != nil {
+		writeCriticalPathValidationStatus(db, "error", draftStart, draftEnd, draftStrategy, err.Error())
+		return
+	}
+	req := rendertrace.RenderRequest{
+		TraceID:              rendertrace.TraceID(selectedTraceID),
+		HierarchyType:        hierarchyType,
+		CriticalPathStart:    draftStart,
+		CriticalPathEnd:      draftEnd,
+		CriticalPathStrategy: draftStrategy,
+	}
+	if err := rendertrace.ValidateCriticalPath(ctx, convertedTrace.Trace(), req); err != nil {
+		writeCriticalPathValidationStatus(db, "error", draftStart, draftEnd, draftStrategy, err.Error())
+		return
+	}
+	writeCriticalPathValidationStatus(db, "ok", draftStart, draftEnd, draftStrategy, "")
+}
+
+func writeCriticalPathValidationStatus(
+	db util.DataBuilder,
+	status string,
+	draftStart string,
+	draftEnd string,
+	draftStrategy string,
+	message string,
+) {
+	db.With(
+		util.StringProperty(statusKey, status),
+		util.StringProperty(draftCriticalPathStartKey, draftStart),
+		util.StringProperty(draftCriticalPathEndKey, draftEnd),
+		util.StringProperty(draftCriticalPathStrategyKey, draftStrategy),
+		util.StringProperty(messageKey, message),
+	)
+}
+
 func handleTraceQuery(
 	ctx context.Context,
 	db util.DataBuilder,
@@ -622,6 +947,7 @@ func handleTraceQuery(
 	coll *Collection,
 	selectedTraceID string,
 	transformTemplate string,
+	selectedHierarchyName string,
 	focusSpanIDs []string,
 	expandedCategoryIDs []string,
 	temporalDomain *rendertrace.TimeRange,
@@ -630,6 +956,9 @@ func handleTraceQuery(
 	criticalPathStrategy string,
 	search string,
 	expandMatches bool,
+	hideNonMatching bool,
+	hideEmpty bool,
+	showOnlyCriticalPath bool,
 ) error {
 	if coll == nil {
 		return fmt.Errorf("corpus is not loaded")
@@ -641,6 +970,10 @@ func handleTraceQuery(
 	if err != nil {
 		return err
 	}
+	hierarchyType, err := resolveHierarchyType(convertedTrace, selectedHierarchyName)
+	if err != nil {
+		return err
+	}
 	traceViewWidthPx := 0
 	if widthValue, ok := reqOpts[traceViewWidthPxKey]; ok {
 		width, err := util.ExpectIntegerValue(widthValue)
@@ -649,10 +982,14 @@ func handleTraceQuery(
 		}
 		traceViewWidthPx = int(width)
 	}
+	displayMode := rendertrace.DisplayAll
+	if hideNonMatching && search != "" {
+		displayMode = rendertrace.DisplayOnlyMatches
+	}
 	req := rendertrace.RenderRequest{
 		TraceID:              rendertrace.TraceID(selectedTraceID),
-		HierarchyType:        extendedotel.ServiceHierarchyType,
-		DisplayMode:          rendertrace.DisplayAll,
+		HierarchyType:        hierarchyType,
+		DisplayMode:          displayMode,
 		TraceViewRangePx:     traceViewWidthPx,
 		FocusSpanIDs:         renderFocusSpanIDs(focusSpanIDs),
 		ExplicitExpanded:     renderExpandedCategoryIDs(expandedCategoryIDs),
@@ -662,6 +999,8 @@ func handleTraceQuery(
 		CriticalPathStrategy: criticalPathStrategy,
 		Search:               search,
 		ExpandMatches:        expandMatches,
+		HideEmptyCategories:  hideEmpty,
+		ShowOnlyCriticalPath: showOnlyCriticalPath,
 	}
 	return convertedTrace.RenderableTrace().RenderTraceViz(ctx, req, db)
 }
@@ -673,6 +1012,7 @@ func handleCriticalPathTraceQuery(
 	coll *Collection,
 	selectedTraceID string,
 	transformTemplate string,
+	selectedHierarchyName string,
 	temporalDomain *rendertrace.TimeRange,
 	criticalPathStart string,
 	criticalPathEnd string,
@@ -688,6 +1028,10 @@ func handleCriticalPathTraceQuery(
 	if err != nil {
 		return err
 	}
+	hierarchyType, err := resolveHierarchyType(convertedTrace, selectedHierarchyName)
+	if err != nil {
+		return err
+	}
 	traceViewWidthPx := 0
 	if widthValue, ok := reqOpts[traceViewWidthPxKey]; ok {
 		width, err := util.ExpectIntegerValue(widthValue)
@@ -698,7 +1042,7 @@ func handleCriticalPathTraceQuery(
 	}
 	req := rendertrace.RenderRequest{
 		TraceID:              rendertrace.TraceID(selectedTraceID),
-		HierarchyType:        extendedotel.ServiceHierarchyType,
+		HierarchyType:        hierarchyType,
 		DisplayMode:          rendertrace.DisplayAll,
 		TraceViewRangePx:     traceViewWidthPx,
 		TemporalDomain:       temporalDomain,

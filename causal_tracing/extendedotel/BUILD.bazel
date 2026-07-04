@@ -34,7 +34,10 @@ go_library(
 go_test(
     name = "extendedotel_test",
     srcs = ["convert_test.go"],
-    data = ["//causal_tracing/testdata:compose_post_ct_logs"],
+    data = [
+        "//causal_tracing/testdata:compose_post_ct_logs",
+        "//causal_tracing/testdata:tracey_trace1_ct_logs",
+    ],
     embed = [":extendedotel"],
     deps = ["@tracey//trace"],
 )

@@ -87,6 +87,50 @@ func TestFindCriticalPathWithDefaultEndpointControls(t *testing.T) {
 	}
 }
 
+func TestFindCriticalPathAllowsOneDefaultEndpoint(t *testing.T) {
+	var buildErr error
+	tr := testtrace.NewTraceBuilderWithErrorHandler(func(err error) {
+		buildErr = err
+	}).
+		WithRootSpans(
+			testtrace.RootSpan(0, 10*time.Nanosecond, "first", testtrace.ParentCategories()),
+			testtrace.RootSpan(10*time.Nanosecond, 40*time.Nanosecond, "middle", testtrace.ParentCategories()),
+			testtrace.RootSpan(40*time.Nanosecond, 100*time.Nanosecond, "last", testtrace.ParentCategories()),
+		).
+		Build()
+	if buildErr != nil {
+		t.Fatalf("failed to build test trace: %v", buildErr)
+	}
+	tests := []struct {
+		name  string
+		start string
+		end   string
+	}{
+		{
+			name:  "explicit start default end",
+			start: "**/(first) @ 0%",
+			end:   DefaultCriticalPathEnd,
+		},
+		{
+			name:  "default start explicit end",
+			start: DefaultCriticalPathStart,
+			end:   "**/(last) @ 100%",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := findCriticalPath(context.Background(), tr, RenderRequest{
+				HierarchyType:        testtrace.None,
+				CriticalPathStart:    test.start,
+				CriticalPathEnd:      test.end,
+				CriticalPathStrategy: "Temporal Max work (non causal)",
+			}); err != nil {
+				t.Fatalf("findCriticalPath() returned error: %v", err)
+			}
+		})
+	}
+}
+
 func TestFindCriticalPathRejectsAmbiguousEndpoints(t *testing.T) {
 	var buildErr error
 	tr := testtrace.NewTraceBuilderWithErrorHandler(func(err error) {
@@ -103,12 +147,46 @@ func TestFindCriticalPathRejectsAmbiguousEndpoints(t *testing.T) {
 	_, err := findCriticalPath(context.Background(), tr, RenderRequest{
 		HierarchyType:     testtrace.None,
 		CriticalPathStart: "** @ 0%",
-		CriticalPathEnd:   DefaultCriticalPathEnd,
+		CriticalPathEnd:   "** @ 100% latest",
 	})
 	if err == nil {
 		t.Fatalf("findCriticalPath() succeeded, want error")
 	}
 	if !strings.Contains(err.Error(), "add earliest or latest to disambiguate") {
 		t.Fatalf("findCriticalPath() error = %q, want ambiguous endpoint error", err.Error())
+	}
+}
+
+func TestFindCriticalPathExplainsSameElementarySpanEndpoints(t *testing.T) {
+	var buildErr error
+	tr := testtrace.NewTraceBuilderWithErrorHandler(func(err error) {
+		buildErr = err
+	}).
+		WithRootSpans(
+			testtrace.RootSpan(0, 100*time.Nanosecond, "long-overlapping", testtrace.ParentCategories()),
+			testtrace.RootSpan(0, 10*time.Nanosecond, "first", testtrace.ParentCategories()),
+			testtrace.RootSpan(90*time.Nanosecond, 100*time.Nanosecond, "last", testtrace.ParentCategories()),
+		).
+		Build()
+	if buildErr != nil {
+		t.Fatalf("failed to build test trace: %v", buildErr)
+	}
+	_, err := findCriticalPath(context.Background(), tr, RenderRequest{
+		HierarchyType:        testtrace.None,
+		CriticalPathStart:    "** @0% earliest",
+		CriticalPathEnd:      "** @100% latest",
+		CriticalPathStrategy: "temporal_most_work",
+	})
+	if err == nil {
+		t.Fatalf("findCriticalPath() succeeded, want error")
+	}
+	for _, want := range []string{
+		"same elementary span long-overlapping",
+		"** @0% earliest",
+		"** @100% latest",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("findCriticalPath() error = %q, want %q", err.Error(), want)
+		}
 	}
 }
