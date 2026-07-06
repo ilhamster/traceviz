@@ -2,10 +2,10 @@
   "name": "traceviz",
   "version": "0.0.0",
   "private": true,
-  "packageManager": "pnpm@10.28.1",
+  "packageManager": "pnpm@11.7.0",
   "engines": {
     "node": ">=22.13 <23",
-    "pnpm": "10.28.1"
+    "pnpm": "11.7.0"
   },
   "workspaces": [
     "client/core",

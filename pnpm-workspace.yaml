@@ -7,10 +7,10 @@ packages:
   - logviz/angular-client
   - logviz/react-client
 
-onlyBuiltDependencies:
-  - '@parcel/watcher@2.5.4'
-  - esbuild@0.20.1
-  - esbuild@0.20.2
-  - esbuild@0.21.5
-  - less@4.5.1
-  - nice-napi@1.0.2
+nodeLinker: hoisted
+minimumReleaseAge: 10080
+
+allowBuilds:
+  '@parcel/watcher': true
+  esbuild: true
+  nice-napi: true
