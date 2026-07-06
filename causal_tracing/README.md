@@ -15,12 +15,26 @@ Tracey transform templates.
 
 ## Running The Tool
 
-From the repository root, install dependencies if needed:
+The repository pins Node.js and pnpm versions so Corepack does not select a
+package-manager release that is incompatible with the active Node.js runtime.
+From the repository root, select the pinned Node.js version and enable the
+pinned pnpm version:
 
 ```sh
-pnpm install
-pnpm run install:causal-tracing
+nvm install
+nvm use
+corepack enable
+pnpm --version
 ```
+
+Then install the workspace dependencies:
+
+```sh
+pnpm install --frozen-lockfile
+```
+
+The root install includes the causal-tracing React client; a separate filtered
+install is not required.
 
 For normal local development, run:
 

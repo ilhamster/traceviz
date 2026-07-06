@@ -17,6 +17,22 @@ is especially suitable when building visualizations for rich data, which may
 support many different
 [*analysis workflows*](./docs/why_traceviz.md#analysis-workflows).
 
+## Development toolchain
+
+TraceViz pins its Node.js version in `.nvmrc` and its pnpm version in
+`package.json`. From the repository root, prepare that toolchain and install the
+workspace dependencies with:
+
+```sh
+nvm install
+nvm use
+corepack enable
+pnpm install --frozen-lockfile
+```
+
+Using the repository pins avoids Corepack selecting a pnpm release that is
+incompatible with the active Node.js version.
+
 ## Learn more
 
 *  [Why TraceViz?](docs/why_traceviz.md) discusses TraceViz's design philosophy
