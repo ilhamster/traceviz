@@ -406,7 +406,15 @@ func (t *Trace) criticalPathDisplaySpanID(
 	if rootSpan == nil {
 		return "", false
 	}
+	var categories []trace.Category[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload]
 	for category := rootSpan.ParentCategory(view.Request.HierarchyType); category != nil; category = category.Parent() {
+		categories = append(categories, category)
+	}
+	for idx := len(categories) - 1; idx >= 0; idx-- {
+		category := categories[idx]
+		if !categoryVisible(category, view, t.namer) {
+			return "", false
+		}
 		if (categoryView{category: category, namer: t.namer}).categoryIsOpen(view) {
 			continue
 		}
@@ -691,8 +699,9 @@ func (cv criticalPathCategoryView) RenderTraceVizCategory(
 type criticalPathFrameKind string
 
 const (
-	criticalPathCategoryFrameKind criticalPathFrameKind = "critical_path_category_frame"
-	criticalPathLeafFrameKind     criticalPathFrameKind = "critical_path_leaf"
+	criticalPathCategoryFrameKind           criticalPathFrameKind = "critical_path_category_frame"
+	criticalPathLeafFrameKind               criticalPathFrameKind = "critical_path_leaf"
+	criticalPathCommunicationDelayFrameKind criticalPathFrameKind = "critical_path_communication_delay"
 )
 
 type criticalPathFrame struct {
@@ -766,6 +775,9 @@ func (sv criticalPathFrameSpanView) RenderTraceVizSpan(
 	if sv.node.frame.kind == criticalPathLeafFrameKind {
 		return sv.renderLeafTraceVizSpan(view, parent)
 	}
+	if sv.node.frame.kind == criticalPathCommunicationDelayFrameKind {
+		return sv.renderCommunicationDelayTraceVizSpan(view, parent)
+	}
 	categoryPayload := sv.node.frame.categoryPayload
 	if categoryPayload == nil {
 		categoryPayload = &CategoryPayload{}
@@ -805,6 +817,34 @@ func (sv criticalPathFrameSpanView) payload() *SpanPayload {
 		return &SpanPayload{}
 	}
 	return payload
+}
+
+func (sv criticalPathFrameSpanView) renderCommunicationDelayTraceVizSpan(
+	view rendertrace.RenderView,
+	parent rendertrace.TraceVizSpanParent,
+) (*tvtrace.Span[time.Duration], error) {
+	start, end := sv.clippedRange(view.TemporalDomain)
+	palette := paletteForTheme(view.Request.Theme)
+	tooltip := tooltipText(
+		"Communications delay",
+		"Kind: critical_path_communication_delay",
+		"Critical path is waiting on a dependency edge.",
+		durationTooltipLine(start, end),
+	)
+	return parent.Span(
+		start,
+		end,
+		label.Format("$(span_name)"),
+		color.Primary(palette.criticalPathCommunicationDelay),
+		color.Secondary(palette.criticalPathCommunicationDelay),
+		color.Stroke(palette.stroke),
+		util.StringProperty("span_kind", string(criticalPathCommunicationDelayFrameKind)),
+		util.StringProperty("span_name", "Communications delay"),
+		util.StringProperty("critical_path_strategy", view.Request.ResolvedCriticalPathStrategy()),
+		util.IntegerProperty("critical_path_first_sequence", int64(sv.node.firstSequence)),
+		util.IntegerProperty("critical_path_last_sequence", int64(sv.node.lastSequence)),
+		util.StringProperty("tooltip", tooltip),
+	), nil
 }
 
 func (sv criticalPathFrameSpanView) spanID() string {
@@ -927,14 +967,31 @@ func buildCriticalPathFrameTree(
 		displayEnd := end
 		nextElementStart := time.Duration(0)
 		hasGapToNext := false
+		projectCommunicationDelay := false
+		projectNoLongerRunning := false
 		if idx+1 < len(path.CriticalPath) {
 			nextElementStart = path.CriticalPath[idx+1].Start()
 			hasGapToNext = nextElementStart > end
 			if hasGapToNext {
-				displayEnd = nextElementStart
+				nextSpan := path.CriticalPath[idx+1].Span()
+				switch {
+				case sameCriticalPathSpan(element.Span(), nextSpan, namer):
+					displayEnd = nextElementStart
+				case spanHasElementaryOverlap(element.Span(), end, nextElementStart):
+					displayEnd = nextElementStart
+					projectCommunicationDelay = true
+				case element.Span() != nil && element.Span().End() <= end:
+					displayEnd = nextElementStart
+					projectNoLongerRunning = true
+				default:
+					displayEnd = nextElementStart
+				}
 			}
 		}
 		frames := criticalPathFrames(element, hierarchy, namer)
+		if len(frames) == 0 {
+			continue
+		}
 		active = resizeCriticalPathActiveFrames(active, len(frames))
 		for depth, frame := range frames {
 			var parent *criticalPathFrameNode
@@ -966,15 +1023,47 @@ func buildCriticalPathFrameTree(
 			}
 			active[depth] = node
 		}
-		if hasGapToNext && !sameCriticalPathSpan(element.Span(), path.CriticalPath[idx+1].Span(), namer) {
+		if hasGapToNext && projectNoLongerRunning {
 			leafNode := active[len(active)-1]
 			leafNode.gaps = append(leafNode.gaps, criticalPathNoLongerRunningGap{
 				start: end,
 				end:   nextElementStart,
 			})
 		}
+		if projectCommunicationDelay {
+			leafNode := active[len(active)-1]
+			leafNode.children = append(leafNode.children, &criticalPathFrameNode{
+				frame: criticalPathFrame{
+					key:  fmt.Sprintf("communication-delay:%d", idx),
+					kind: criticalPathCommunicationDelayFrameKind,
+					name: "Communications delay",
+				},
+				start:         end,
+				end:           nextElementStart,
+				firstSequence: idx,
+				lastSequence:  idx,
+				parent:        leafNode,
+			})
+			active = nil
+		}
 	}
 	return roots
+}
+
+func spanHasElementaryOverlap(
+	span trace.Span[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
+	start time.Duration,
+	end time.Duration,
+) bool {
+	if span == nil || end <= start {
+		return false
+	}
+	for _, elementarySpan := range span.ElementarySpans() {
+		if elementarySpan.End() > start && elementarySpan.Start() < end {
+			return true
+		}
+	}
+	return false
 }
 
 func resizeCriticalPathActiveFrames(active []*criticalPathFrameNode, length int) []*criticalPathFrameNode {
@@ -1120,56 +1209,59 @@ func (style renderedCausalEventStyle) color(theme rendertrace.Theme) string {
 }
 
 type renderPalette struct {
-	realSpan                   string
-	searchMatch                string
-	stroke                     string
-	criticalPathCategory       string
-	criticalPathEdge           string
-	focusDependencyEdge        string
-	suspendOverlay             string
-	criticalPathGapOverlay     string
-	serviceSaturation          int
-	serviceLightness           int
-	heatmapBaseSaturation      int
-	heatmapAddedSaturation     int
-	heatmapBaseLightness       int
-	heatmapSubtractedLightness int
+	realSpan                       string
+	searchMatch                    string
+	stroke                         string
+	criticalPathCategory           string
+	criticalPathEdge               string
+	focusDependencyEdge            string
+	suspendOverlay                 string
+	criticalPathGapOverlay         string
+	criticalPathCommunicationDelay string
+	serviceSaturation              int
+	serviceLightness               int
+	heatmapBaseSaturation          int
+	heatmapAddedSaturation         int
+	heatmapBaseLightness           int
+	heatmapSubtractedLightness     int
 }
 
 func paletteForTheme(theme rendertrace.Theme) renderPalette {
 	if theme == rendertrace.ThemeDark {
 		return renderPalette{
-			realSpan:                   "#93c5fd",
-			searchMatch:                "#fb923c",
-			stroke:                     "#111827",
-			criticalPathCategory:       "#cbd5e1",
-			criticalPathEdge:           "#c084fc",
-			focusDependencyEdge:        "#2dd4bf",
-			suspendOverlay:             "rgba(15, 23, 42, 0.56)",
-			criticalPathGapOverlay:     "rgba(2, 6, 23, 0.68)",
-			serviceSaturation:          58,
-			serviceLightness:           72,
-			heatmapBaseSaturation:      42,
-			heatmapAddedSaturation:     30,
-			heatmapBaseLightness:       36,
-			heatmapSubtractedLightness: -28,
+			realSpan:                       "#93c5fd",
+			searchMatch:                    "#fb923c",
+			stroke:                         "#111827",
+			criticalPathCategory:           "#cbd5e1",
+			criticalPathEdge:               "#c084fc",
+			focusDependencyEdge:            "#2dd4bf",
+			suspendOverlay:                 "rgba(15, 23, 42, 0.56)",
+			criticalPathGapOverlay:         "rgba(2, 6, 23, 0.68)",
+			criticalPathCommunicationDelay: "#64748b",
+			serviceSaturation:              58,
+			serviceLightness:               72,
+			heatmapBaseSaturation:          42,
+			heatmapAddedSaturation:         30,
+			heatmapBaseLightness:           36,
+			heatmapSubtractedLightness:     -28,
 		}
 	}
 	return renderPalette{
-		realSpan:                   "#9ecae1",
-		searchMatch:                "#f97316",
-		stroke:                     "#202124",
-		criticalPathCategory:       "#e8eaed",
-		criticalPathEdge:           "#3730a3",
-		focusDependencyEdge:        "#0f766e",
-		suspendOverlay:             "rgba(128, 128, 128, 0.48)",
-		criticalPathGapOverlay:     "rgba(70, 70, 70, 0.58)",
-		serviceSaturation:          32,
-		serviceLightness:           85,
-		heatmapBaseSaturation:      18,
-		heatmapAddedSaturation:     22,
-		heatmapBaseLightness:       96,
-		heatmapSubtractedLightness: 18,
+		realSpan:                       "#9ecae1",
+		searchMatch:                    "#f97316",
+		stroke:                         "#202124",
+		criticalPathCategory:           "#e8eaed",
+		criticalPathEdge:               "#3730a3",
+		focusDependencyEdge:            "#0f766e",
+		suspendOverlay:                 "rgba(128, 128, 128, 0.48)",
+		criticalPathGapOverlay:         "rgba(70, 70, 70, 0.58)",
+		criticalPathCommunicationDelay: "#9ca3af",
+		serviceSaturation:              32,
+		serviceLightness:               85,
+		heatmapBaseSaturation:          18,
+		heatmapAddedSaturation:         22,
+		heatmapBaseLightness:           96,
+		heatmapSubtractedLightness:     18,
 	}
 }
 

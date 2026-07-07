@@ -2,6 +2,7 @@ package extendedotel
 
 import (
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -162,7 +163,7 @@ func TestConvertComposeFixtureBuildsServiceSpawnHierarchy(t *testing.T) {
 	}
 }
 
-func TestBuildCriticalPathFrameTreeMergesPrefixesAndRecordsGaps(t *testing.T) {
+func TestBuildCriticalPathFrameTreeMergesPrefixesWithoutMisclassifyingSuspends(t *testing.T) {
 	response, err := LoadRawResponseFile(filepath.Join("..", "testdata", "tracey-trace1-ct-logs.json"))
 	if err != nil {
 		t.Fatalf("LoadRawResponseFile() failed: %v", err)
@@ -220,14 +221,8 @@ func TestBuildCriticalPathFrameTreeMergesPrefixesAndRecordsGaps(t *testing.T) {
 	if got, want := len(rootLeaf.children), 1; got != want {
 		t.Fatalf("root leaf child frame count = %d, want %d", got, want)
 	}
-	if got, want := len(rootLeaf.gaps), 1; got != want {
-		t.Fatalf("root leaf no-longer-running gaps = %d, want %d", got, want)
-	}
-	if got, want := rootLeaf.gaps[0].start, 10*time.Millisecond; got != want {
-		t.Fatalf("root leaf gap start = %v, want %v", got, want)
-	}
-	if got, want := rootLeaf.gaps[0].end, 20*time.Millisecond; got != want {
-		t.Fatalf("root leaf gap end = %v, want %v", got, want)
+	if got := len(rootLeaf.gaps); got != 0 {
+		t.Fatalf("root leaf no-longer-running gaps = %d, want 0", got)
 	}
 
 	childLeaf := rootLeaf.children[0]
@@ -239,6 +234,44 @@ func TestBuildCriticalPathFrameTreeMergesPrefixesAndRecordsGaps(t *testing.T) {
 	}
 	if got := len(childLeaf.gaps); got != 0 {
 		t.Fatalf("child leaf no-longer-running gaps = %d, want 0", got)
+	}
+}
+
+func TestBuildCriticalPathFrameTreeNestsCommunicationDelayUnderOriginStack(t *testing.T) {
+	response, err := LoadRawResponseFile(filepath.Join("..", "testdata", "tracey-trace1-ct-logs.json"))
+	if err != nil {
+		t.Fatalf("LoadRawResponseFile() failed: %v", err)
+	}
+	converted, err := ConvertExtendedOtelTrace(response.Data[0])
+	if err != nil {
+		t.Fatalf("ConvertExtendedOtelTrace() failed: %v", err)
+	}
+	originSpan := converted.SpanByID("s1.0.0")
+	destinationSpan := converted.SpanByID("s0.1.0")
+	if originSpan == nil || destinationSpan == nil {
+		t.Fatalf("fixture spans missing: origin=%v destination=%v", originSpan, destinationSpan)
+	}
+
+	path := &criticalpath.Path[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload]{
+		CriticalPath: []criticalpath.PathElement[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload]{
+			testCriticalPathElement{span: originSpan, start: 30 * time.Millisecond, end: 35 * time.Millisecond},
+			testCriticalPathElement{span: destinationSpan, start: 40 * time.Millisecond, end: 45 * time.Millisecond},
+		},
+	}
+	roots := buildCriticalPathFrameTree(path, ServiceSpawnHierarchyType, converted.namer)
+	delay := firstCriticalPathNodeWithKind(roots, criticalPathCommunicationDelayFrameKind)
+	if delay == nil {
+		t.Fatalf("critical path frame tree has no communication delay: %#v", roots)
+	}
+	if delay.parent == nil {
+		t.Fatal("communication delay parent is nil, want origin stack leaf")
+	}
+	if got, want := delay.parent.frame.span, originSpan; got != want {
+		t.Fatalf("communication delay parent span = %v, want origin span", got)
+	}
+	wantStack := []string{"p0", "p1", "s1.0.0", "s1.0.0", "Communications delay"}
+	if got := criticalPathFrameStackNames(delay); !reflect.DeepEqual(got, wantStack) {
+		t.Fatalf("communication delay stack = %v, want %v", got, wantStack)
 	}
 }
 
@@ -278,6 +311,43 @@ func TestRenderableConcurrencyBucketsMergeAdjacentSameColorBuckets(t *testing.T)
 	if got[1].Peak != 100 {
 		t.Fatalf("second bucket peak = %d, want 100", got[1].Peak)
 	}
+}
+
+func firstCriticalPathNodeWithKind(
+	nodes []*criticalPathFrameNode,
+	kind criticalPathFrameKind,
+) *criticalPathFrameNode {
+	for _, node := range nodes {
+		if node.frame.kind == kind {
+			return node
+		}
+		if child := firstCriticalPathNodeWithKind(node.children, kind); child != nil {
+			return child
+		}
+	}
+	return nil
+}
+
+func criticalPathFrameStackNames(node *criticalPathFrameNode) []string {
+	if node == nil {
+		return nil
+	}
+	var reversed []string
+	for cursor := node; cursor != nil; cursor = cursor.parent {
+		name := cursor.frame.name
+		if name == "" && cursor.frame.categoryPayload != nil {
+			name = cursor.frame.categoryPayload.Name
+		}
+		if name == "" && cursor.frame.payload != nil {
+			name = cursor.frame.payload.SpanID
+		}
+		reversed = append(reversed, name)
+	}
+	ret := make([]string, 0, len(reversed))
+	for idx := len(reversed) - 1; idx >= 0; idx-- {
+		ret = append(ret, reversed[idx])
+	}
+	return ret
 }
 
 func firstDescendantCategoryWithRootSpans(

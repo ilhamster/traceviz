@@ -165,6 +165,28 @@ func TestTraceQuery(t *testing.T) {
 			},
 		},
 		{
+			name:   "rolls critical path overlay to collapsed service-spawn ancestor",
+			source: traceIDSource(traceyTrace1CorpusPath, "tracey-trace1"),
+			globalFilters: map[string]*util.V{
+				hierarchyTypeKey:        util.StringValue("service_spawn"),
+				criticalPathStartKey:    stringValue(rendertrace.DefaultCriticalPathStart),
+				criticalPathEndKey:      stringValue(rendertrace.DefaultCriticalPathEnd),
+				criticalPathStrategyKey: util.StringValue(rendertrace.DefaultCriticalPathStrategy),
+				showOnlyCriticalPathKey: util.StringValue("true"),
+			},
+			queryName:  traceQuery,
+			seriesName: "trace",
+			options: map[string]*util.V{
+				traceViewWidthPxKey: util.IntegerValue(1200),
+			},
+			want: []string{
+				"Prop 'category_label': '▶ p0'",
+				"Prop 'span_kind': 'synthetic_service'",
+				"Prop 'trace_edge_kind': 'critical_path'",
+				"Prop 'category_id': 'service-spawn:p0'",
+			},
+		},
+		{
 			name:   "search expands and highlights matches",
 			source: traceIndexSource(composePostCorpusPath, 0),
 			globalFilters: map[string]*util.V{

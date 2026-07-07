@@ -48,6 +48,14 @@ func TestSpanCausalityQuery(t *testing.T) {
 				"Prop 'table_cell': 'return'",
 				"Prop 'table_cell': 's0.0.0-calls-0'",
 			},
+			wantCount: map[string]int{
+				"Prop 'table_cell': 'mark'":                2,
+				"Prop 'table_cell': 'start'":               1,
+				"Prop 'table_cell': 'end'":                 1,
+				"Prop 'table_cell': 'outgoing_dependency'": 1,
+				"Prop 'table_cell': 'incoming_dependency'": 1,
+				"Prop 'table_cell': 's0.0.0-calls-0'":      2,
+			},
 		},
 	}
 	runDataSeriesQueryCases(t, tests)

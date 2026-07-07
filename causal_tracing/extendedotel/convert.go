@@ -661,55 +661,94 @@ func (cs *conversionState) applyTraceyCallReturn(pair *traceyCallReturnPair) {
 		cs.diagnostic(pair.call.spanID, "tracey call_id "+pair.callID+" child span is not contained in call interval")
 		return
 	}
-	if err := parentSpan.Suspend(
-		trace.DurationComparator,
-		callTime,
-		returnTime,
-		trace.SuspendFissionsAroundElementarySpanEndpoints,
-	); err != nil {
-		cs.diagnostic(pair.call.spanID, fmt.Sprintf("could not suspend parent for tracey call_id %q: %v", pair.callID, err))
-		return
+	childRaw := cs.rawByID[pair.child]
+	if !cs.updateTraceyCallDependencyPayload(parentSpan, childSpan, pair, childRaw) {
+		cs.diagnostic(pair.call.spanID, "tracey call_id "+pair.callID+" could not find implicit call dependency")
 	}
-	childStart := causalEvent{
-		spanID:    pair.child,
-		timestamp: cs.rawByID[pair.child].StartTime,
-		eventType: "tracey_call_child_start",
+	if !cs.updateTraceyReturnDependencyPayload(parentSpan, childSpan, pair, childRaw) {
+		cs.diagnostic(pair.call.spanID, "tracey call_id "+pair.callID+" could not find implicit return dependency")
 	}
-	cs.addDependency(
-		trace.Call,
-		&DependencyPayload{
+}
+
+func (cs *conversionState) updateTraceyCallDependencyPayload(
+	parentSpan trace.Span[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
+	childSpan trace.Span[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
+	pair *traceyCallReturnPair,
+	childRaw RawSpan,
+) bool {
+	for _, elementarySpan := range childSpan.ElementarySpans() {
+		dependency := elementarySpan.Incoming()
+		if dependency == nil ||
+			dependency.DependencyType() != trace.Call ||
+			dependency.TriggeringOrigin() == nil ||
+			dependency.TriggeringOrigin().Span() != parentSpan {
+			continue
+		}
+		return updateDependencyPayload(dependency, &DependencyPayload{
 			Kind:             "call",
 			Key:              pair.callID,
 			OriginSpanID:     pair.call.spanID,
 			OriginTimestamp:  pair.call.timestamp,
 			DestSpanID:       pair.child,
-			DestTimestamp:    childStart.timestamp,
+			DestTimestamp:    childRaw.StartTime,
 			OriginEvent:      pair.call.eventType,
-			DestinationEvent: childStart.eventType,
-		},
-		*pair.call,
-		childStart,
-	)
-	childEnd := causalEvent{
-		spanID:    pair.child,
-		timestamp: cs.rawByID[pair.child].StartTime + cs.rawByID[pair.child].Duration,
-		eventType: "tracey_call_child_end",
+			DestinationEvent: "tracey_call_child_start",
+		})
 	}
-	cs.addDependency(
-		trace.Return,
-		&DependencyPayload{
+	return false
+}
+
+func (cs *conversionState) updateTraceyReturnDependencyPayload(
+	parentSpan trace.Span[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
+	childSpan trace.Span[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
+	pair *traceyCallReturnPair,
+	childRaw RawSpan,
+) bool {
+	for _, elementarySpan := range childSpan.ElementarySpans() {
+		dependency := elementarySpan.Outgoing()
+		if dependency == nil ||
+			dependency.DependencyType() != trace.Return ||
+			!dependencyHasDestinationSpan(dependency, parentSpan) {
+			continue
+		}
+		return updateDependencyPayload(dependency, &DependencyPayload{
 			Kind:             "return",
 			Key:              pair.callID,
 			OriginSpanID:     pair.child,
-			OriginTimestamp:  childEnd.timestamp,
+			OriginTimestamp:  childRaw.StartTime + childRaw.Duration,
 			DestSpanID:       pair.ret.spanID,
 			DestTimestamp:    pair.ret.timestamp,
-			OriginEvent:      childEnd.eventType,
+			OriginEvent:      "tracey_call_child_end",
 			DestinationEvent: pair.ret.eventType,
-		},
-		childEnd,
-		*pair.ret,
-	)
+		})
+	}
+	return false
+}
+
+func dependencyHasDestinationSpan(
+	dependency trace.Dependency[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
+	span trace.Span[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
+) bool {
+	for _, destination := range dependency.Destinations() {
+		if destination.Span() == span {
+			return true
+		}
+	}
+	return false
+}
+
+func updateDependencyPayload(
+	dependency trace.Dependency[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
+	payload *DependencyPayload,
+) bool {
+	payloadUpdater, ok := dependency.(interface {
+		WithPayload(*DependencyPayload) trace.MutableDependency[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload]
+	})
+	if !ok {
+		return false
+	}
+	payloadUpdater.WithPayload(payload)
+	return true
 }
 
 func (cs *conversionState) applyLockDependencies() {
