@@ -45,7 +45,7 @@
     "run:causal-tracing": "bazel run //causal_tracing/server:server -- --react_root \"$PWD/causal_tracing/react-client/dist\" --trace_root / --default_trace_path \"$PWD/causal_tracing/testdata/compose-post-ct-logs.json\"",
 
     "dev:logviz": "pnpm run ib:logviz && cd logviz && go run server/server.go --angular_root ./angular-client/dist/angular-client  --react_root ./react-client/dist --client_watch_cwd ..  --client_watch_cmd \"pnpm --filter ./logviz/react-client exec vite build --watch\"",
-    "dev:causal-tracing": "pnpm run build:causal-tracing && bazel run //causal_tracing/server:server -- --react_root \"$PWD/causal_tracing/react-client/dist\" --trace_root / --default_trace_path \"$PWD/causal_tracing/testdata/compose-post-ct-logs.json\" --client_watch_cwd \"$PWD\" --client_watch_cmd \"pnpm --filter ./causal_tracing/react-client exec vite build --watch\"",
+    "dev:causal-tracing": "pnpm run build:causal-tracing && bazel run //causal_tracing/server:server -- --react_root \"$PWD/causal_tracing/react-client/dist\" --trace_root / --default_trace_path \"$PWD/causal_tracing/testdata/compose-post-ct-logs.json\" --client_watch_cwd \"$PWD/causal_tracing/react-client\" --client_watch_cmd \"pnpm exec vite build --watch\"",
 
     "demo": "pnpm run ibt && pnpm run ib:logviz && pnpm run run:logviz"
   },

@@ -42,6 +42,7 @@ const DETAIL_FORMAT_KEY = "detail_format";
 const TOOLTIP_KEY = "tooltip";
 const CALLED_OUT_CATEGORY_BAND_COLOR = "#aaa";
 const CALLED_OUT_CATEGORY_BAND_OPACITY = 0.35;
+const MIN_BRUSH_WIDTH_PX = 2;
 export const TRACE_SPANS_TARGET = "trace_spans";
 export const TRACE_SPAN_CLICK_ACTION = "click";
 export const TRACE_CHART_TARGET = "chart";
@@ -273,7 +274,7 @@ export function HorizontalTrace<T>(
     };
   }, [appCore, interactions]);
 
-  useEffect((): void => {
+  useEffect(() => {
     if (
       !svgRef.current ||
       traceAreaWidthPx <= 0 ||
@@ -312,55 +313,133 @@ export function HorizontalTrace<T>(
       .attr("width", traceAreaWidthPx)
       .attr("height", heightPx)
       .style("pointer-events", "none");
-    svg
-      .select<SVGGElement>(".brush")
-      .attr("width", traceAreaWidthPx)
-      .attr("height", heightPx);
-
     const brushLayer = svg.select<SVGGElement>(".brush");
-    const brush = d3
-      .brushX<unknown>()
-      .extent([
-        [0, 0],
-        [traceAreaWidthPx, heightPx],
-      ])
-      .on("end", (event: any) => {
-        if (!event?.sourceEvent || !interactions) {
-          return;
-        }
+    brushLayer
+      .attr("width", traceAreaWidthPx)
+      .attr("height", heightPx)
+      .style("pointer-events", "none")
+      .raise();
+    const brushSelection = brushLayer
+      .selectAll<SVGRectElement, null>("rect.brush-selection")
+      .data([null]);
+    brushSelection.exit().remove();
+    brushSelection
+      .enter()
+      .append("rect")
+      .attr("class", "brush-selection")
+      .merge(brushSelection)
+      .attr("y", 0)
+      .attr("height", heightPx)
+      .attr("fill", "rgba(55, 48, 163, 0.18)")
+      .attr("stroke", "rgba(55, 48, 163, 0.72)")
+      .attr("visibility", "hidden")
+      .attr("pointer-events", "none");
+
+    const svgNode = svgRef.current;
+    let brushStartPx: number | null = null;
+    let activePointerID: number | null = null;
+    let suppressNextClick = false;
+    const pointerX = (event: PointerEvent): number => {
+      const rect = svgNode.getBoundingClientRect();
+      return Math.max(0, Math.min(traceAreaWidthPx, event.clientX - rect.left));
+    };
+    const setBrushSelection = (leftPx: number, rightPx: number): void => {
+      brushLayer
+        .select<SVGRectElement>("rect.brush-selection")
+        .attr("x", Math.min(leftPx, rightPx))
+        .attr("width", Math.abs(rightPx - leftPx))
+        .attr("visibility", "visible");
+    };
+    const clearBrushSelection = (): void => {
+      brushLayer
+        .select<SVGRectElement>("rect.brush-selection")
+        .attr("visibility", "hidden")
+        .attr("width", 0);
+    };
+    const commitBrushSelection = (leftPx: number, rightPx: number): void => {
+      if (!interactions || Math.abs(rightPx - leftPx) < MIN_BRUSH_WIDTH_PX) {
+        return;
+      }
+      const [domainStart, domainEnd] = domainFromAxis(trace.axis);
+      const scale = d3
+        .scaleLinear()
+        .domain([0, traceAreaWidthPx])
+        .range([domainStart, domainEnd]);
+      interactions.update(
+        TRACE_CHART_TARGET,
+        TRACE_BRUSH_ACTION,
+        new ValueMap(
+          new Map([
+            [TRACE_ZOOM_START_KEY, axisOffsetValue(trace, scale(leftPx))],
+            [TRACE_ZOOM_END_KEY, axisOffsetValue(trace, scale(rightPx))],
+          ]),
+        ),
+      );
+    };
+    const pointerDownListener = (event: PointerEvent): void => {
+      if (!interactions || event.button !== 0) {
+        return;
+      }
+      brushStartPx = pointerX(event);
+      activePointerID = event.pointerId;
+      try {
+        svgNode.setPointerCapture(event.pointerId);
+      } catch {
+        // Some SVG hosts may not support pointer capture; window-level pointer
+        // movement still works for ordinary in-bounds brushes.
+      }
+    };
+    const pointerMoveListener = (event: PointerEvent): void => {
+      if (brushStartPx === null || activePointerID !== event.pointerId) {
+        return;
+      }
+      const currentPx = pointerX(event);
+      if (Math.abs(currentPx - brushStartPx) >= MIN_BRUSH_WIDTH_PX) {
+        suppressNextClick = true;
+        setBrushSelection(brushStartPx, currentPx);
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
+    const pointerUpListener = (event: PointerEvent): void => {
+      if (brushStartPx === null || activePointerID !== event.pointerId) {
+        return;
+      }
+      const startPx = brushStartPx;
+      const endPx = pointerX(event);
+      brushStartPx = null;
+      activePointerID = null;
+      clearBrushSelection();
+      try {
+        svgNode.releasePointerCapture(event.pointerId);
+      } catch {
+        // Ignore unsupported or already-released pointer capture.
+      }
+      if (Math.abs(endPx - startPx) >= MIN_BRUSH_WIDTH_PX) {
         try {
-          const extent = event.selection as [number, number] | null;
-          if (!extent) {
-            return;
-          }
-          const [leftPx, rightPx] = extent;
-          if (Math.abs(rightPx - leftPx) < 2) {
-            brushLayer.call(brush.move as any, null);
-            return;
-          }
-          const [domainStart, domainEnd] = domainFromAxis(trace.axis);
-          const scale = d3
-            .scaleLinear()
-            .domain([0, traceAreaWidthPx])
-            .range([domainStart, domainEnd]);
-          interactions.update(
-            TRACE_CHART_TARGET,
-            TRACE_BRUSH_ACTION,
-            new ValueMap(
-              new Map([
-                [TRACE_ZOOM_START_KEY, axisOffsetValue(trace, scale(leftPx))],
-                [TRACE_ZOOM_END_KEY, axisOffsetValue(trace, scale(rightPx))],
-              ]),
-            ),
-          );
-          brushLayer.call(brush.move as any, null);
+          commitBrushSelection(startPx, endPx);
         } catch (err: unknown) {
           appCore.err(
             err instanceof Error ? err : new ConfigurationError(String(err)),
           );
         }
-      });
-    brushLayer.call(brush as any);
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
+    const clickListener = (event: MouseEvent): void => {
+      if (!suppressNextClick) {
+        return;
+      }
+      suppressNextClick = false;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
+    svgNode.addEventListener("pointerdown", pointerDownListener, true);
+    svgNode.addEventListener("pointermove", pointerMoveListener, true);
+    svgNode.addEventListener("pointerup", pointerUpListener, true);
+    svgNode.addEventListener("pointercancel", pointerUpListener, true);
+    svgNode.addEventListener("click", clickListener, true);
     svg.on("dblclick", (event: MouseEvent) => {
       if (!interactions) {
         return;
@@ -489,6 +568,13 @@ export function HorizontalTrace<T>(
           strokeOrSecondary(re.properties, re.highlighted),
         );
     }
+    return () => {
+      svgNode.removeEventListener("pointerdown", pointerDownListener, true);
+      svgNode.removeEventListener("pointermove", pointerMoveListener, true);
+      svgNode.removeEventListener("pointerup", pointerUpListener, true);
+      svgNode.removeEventListener("pointercancel", pointerUpListener, true);
+      svgNode.removeEventListener("click", clickListener, true);
+    };
   }, [
     renderedCategories.heightPx,
     calledOutCategoryID,
@@ -528,10 +614,10 @@ export function HorizontalTrace<T>(
       <div style={{ gridColumn: "2", gridRow: "1" }}>
         {traceAreaWidthPx > 0 && renderedTrace !== null ? (
           <svg ref={svgRef} style={{ display: "block" }}>
-            <g className="brush" />
             <g className="called-out-category-band" />
             <g className="spans" />
             <g className="edges" />
+            <g className="brush" />
           </svg>
         ) : null}
       </div>

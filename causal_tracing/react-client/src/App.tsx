@@ -345,6 +345,21 @@ function renderedTraceDurationDomain(trace: Trace<unknown> | undefined): Duratio
   return [trace.axis.min.nanos, trace.axis.max.nanos];
 }
 
+function committedTemporalDomain(
+  temporalDomainStart: DurationValue,
+  temporalDomainEnd: DurationValue,
+): DurationDomain | null {
+  const start = temporalDomainStart.val.nanos;
+  const end = temporalDomainEnd.val.nanos;
+  if (start === 0 && end === 0) {
+    return null;
+  }
+  if (end <= start) {
+    return null;
+  }
+  return [start, end];
+}
+
 function renderedTraceFullDurationDomain(trace: Trace<unknown> | undefined): DurationDomain | null {
   if (!trace) {
     return null;
@@ -458,6 +473,7 @@ class SetTemporalDomainFromLocal extends Update {
   constructor(
     private readonly temporalDomainStart: DurationValue,
     private readonly temporalDomainEnd: DurationValue,
+    private readonly fullDomain: () => DurationDomain | null,
   ) {
     super();
   }
@@ -473,6 +489,7 @@ class SetTemporalDomainFromLocal extends Update {
       this.temporalDomainEnd,
       start.val.nanos,
       end.val.nanos,
+      this.fullDomain(),
     );
   }
 
@@ -1240,6 +1257,7 @@ export default function App(): JSX.Element {
           new SetTemporalDomainFromLocal(
             state.temporalDomainStart,
             state.temporalDomainEnd,
+            () => renderedTraceFullDurationDomain(renderedTrace),
           ),
         ]),
       )
@@ -1265,6 +1283,7 @@ export default function App(): JSX.Element {
   }, [
     state.calledOutCategoryID,
     state.focusSpanIDs,
+    renderedTrace,
     state.temporalDomainEnd,
     state.temporalDomainStart,
   ]);
@@ -1275,7 +1294,11 @@ export default function App(): JSX.Element {
         new KeyboardTemporalZoom(
           state.temporalDomainStart,
           state.temporalDomainEnd,
-          () => renderedTraceDurationDomain(renderedTrace),
+          () =>
+            committedTemporalDomain(
+              state.temporalDomainStart,
+              state.temporalDomainEnd,
+            ) ?? renderedTraceDurationDomain(renderedTrace),
           () => renderedTraceFullDurationDomain(renderedTrace),
         ),
       ]),
