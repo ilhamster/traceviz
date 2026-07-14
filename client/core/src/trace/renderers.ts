@@ -248,8 +248,11 @@ function addHorizontalCategorySpans<T>(
     category: TraceCategory<T>, y0Px: number,
     domainToRange: (properties: ValueMap, key: string) => number,
     renderSettings: TraceRenderSettings, spans: RenderedTraceSpan[],
-    edgeNodesByID: Map<string, EdgeNode>): number {
-  let y1Px = y0Px + renderSettings.categoryRenderSettings.categoryHeaderCatPx;
+    edgeNodesByID: Map<string, EdgeNode>,
+    includeCategoryHeaderSpace: boolean): number {
+  let y1Px = y0Px + (includeCategoryHeaderSpace ?
+      renderSettings.categoryRenderSettings.categoryHeaderCatPx :
+      0);
   // Add all the category's spans.
   for (const span of category.spans) {
     y1Px = Math.max(
@@ -263,7 +266,8 @@ function addHorizontalCategorySpans<T>(
     y1Px = addHorizontalCategorySpans(
         subcategory,
         y1Px + renderSettings.categoryRenderSettings.categoryPaddingCatPx,
-        domainToRange, renderSettings, spans, edgeNodesByID);
+        domainToRange, renderSettings, spans, edgeNodesByID,
+        includeCategoryHeaderSpace);
   }
   // If the category height is less than the minimum, set it to the minimum.
   if ((y1Px - y0Px) <
@@ -290,19 +294,22 @@ function clampFraction(num: number): number {
  * duration along the X axis, with the range going from 0 to the provided width.
  */
 export function renderHorizontalTraceSpans<T>(
-    trace: Trace<T>, widthPx: number): RenderedTraceSpans {
+    trace: Trace<T>, widthPx: number,
+    options: {includeCategoryHeaderSpace?: boolean} = {}): RenderedTraceSpans {
   const domainToRange = (properties: ValueMap, key: string): number => {
     const domainFraction = trace.axis.valueToDomainFraction(properties, key);
     return Math.round(clampFraction(domainFraction) * widthPx);
   };
   const renderedSpans: RenderedTraceSpan[] = [];
   const edgeNodesByID = new Map<string, EdgeNode>();
+  const includeCategoryHeaderSpace =
+      options.includeCategoryHeaderSpace ?? true;
   // For each category, render all its spans.
   let y1Px = 0;
   for (const category of trace.categories) {
     y1Px = addHorizontalCategorySpans(
         category, y1Px, domainToRange, trace.renderSettings(), renderedSpans,
-        edgeNodesByID);
+        edgeNodesByID, includeCategoryHeaderSpace);
   }
   const renderedEdges: RenderedTraceEdge[] = [];
   for (const startNode of edgeNodesByID.values()) {

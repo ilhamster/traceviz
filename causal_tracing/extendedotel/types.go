@@ -46,7 +46,7 @@ const (
 
 // Trace is a Tracey wrapper for one converted extended OTel trace.
 type Trace struct {
-	raw          RawTrace
+	traceID      string
 	trace        trace.Trace[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload]
 	namer        *Namer
 	originMicros int64
@@ -60,9 +60,9 @@ func (t *Trace) Trace() trace.Trace[time.Duration, *CategoryPayload, *SpanPayloa
 	return t.trace
 }
 
-// RawTrace returns the decoded source trace.
-func (t *Trace) RawTrace() RawTrace {
-	return t.raw
+// TraceID returns the source trace's stable corpus identifier.
+func (t *Trace) TraceID() string {
+	return t.traceID
 }
 
 // Namer returns the Tracey namer for this trace type.

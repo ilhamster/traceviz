@@ -37,7 +37,7 @@ func (t *Trace) withTrace(
 		return nil, fmt.Errorf("transformed trace is nil")
 	}
 	return &Trace{
-		raw:          t.raw,
+		traceID:      t.traceID,
 		trace:        transformed,
 		namer:        t.namer,
 		originMicros: t.originMicros,

@@ -2,6 +2,9 @@
   "name": "@traceviz/client-react",
   "private": true,
   "type": "module",
+  "scripts": {
+    "test:trace-minimap": "NODE_OPTIONS=--loader=ts-node/esm pnpm exec jasmine --config=spec/support/trace_minimap_jasmine.js"
+  },
   "dependencies": {
     "@traceviz/client-core": "workspace:*",
     "@mantine/core": "^7.17.8",

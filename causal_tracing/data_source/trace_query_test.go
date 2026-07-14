@@ -44,6 +44,7 @@ func TestTraceQuery(t *testing.T) {
 			},
 			want: []string{
 				"Prop 'subspan_kind': 'causal_event'",
+				"Prop 'causality_entry_ids': [ 's0.0.0:event:",
 				"Prop 'event_type': 'mark'",
 				"Prop 'event_display_name': 'Mark'",
 				"Prop 'event_label': 'start'",

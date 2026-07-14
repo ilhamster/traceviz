@@ -3,6 +3,7 @@ package datasource
 import (
 	"testing"
 
+	"github.com/ilhamster/traceviz/causal_tracing/rendertrace"
 	"github.com/ilhamster/traceviz/server/go/util"
 )
 
@@ -17,6 +18,9 @@ func TestSpanCausalityQuery(t *testing.T) {
 			queryName:  spanCausalityQuery,
 			seriesName: "span-causality",
 			want: []string{
+				"Prop 'secondary_color': 'rgba(148, 163, 184, 0.30)'",
+				"Prop 'causality_entry_id': 's0.0.0/0/3:suspend:",
+				"Prop 'causality_entry_id': 's0.0.0/0/3:event:",
 				"Prop 'table_cell': 'suspend'",
 				"Prop 'table_cell': 10ms",
 				"Prop 'table_cell': 'incoming_dependency'",
@@ -38,6 +42,7 @@ func TestSpanCausalityQuery(t *testing.T) {
 			queryName:  spanCausalityQuery,
 			seriesName: "span-causality",
 			want: []string{
+				"Prop 'causality_entry_id': 's0.0.0:event:",
 				"Prop 'table_cell': 'event'",
 				"Prop 'table_cell': 'mark'",
 				"Prop 'table_cell': 'start'",
@@ -55,6 +60,19 @@ func TestSpanCausalityQuery(t *testing.T) {
 				"Prop 'table_cell': 'outgoing_dependency'": 1,
 				"Prop 'table_cell': 'incoming_dependency'": 1,
 				"Prop 'table_cell': 's0.0.0-calls-0'":      2,
+			},
+		},
+		{
+			name:   "uses dark-theme row highlights",
+			source: traceIDSource(traceyTrace1CorpusPath, "tracey-trace1"),
+			globalFilters: map[string]*util.V{
+				focusSpanIDsKey: util.StringsValue("s0.0.0"),
+				themeKey:        util.StringValue(string(rendertrace.ThemeDark)),
+			},
+			queryName:  spanCausalityQuery,
+			seriesName: "span-causality",
+			want: []string{
+				"Prop 'secondary_color': 'rgba(100, 116, 139, 0.48)'",
 			},
 		},
 	}

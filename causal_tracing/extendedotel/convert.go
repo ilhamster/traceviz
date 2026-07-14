@@ -101,7 +101,7 @@ func ConvertExtendedOtelTrace(raw RawTrace) (*Trace, error) {
 	state.trace.Simplify()
 	concurrencyMaps := state.buildConcurrencyMaps()
 	return &Trace{
-		raw:          raw,
+		traceID:      raw.TraceID,
 		trace:        state.trace,
 		namer:        state.namer,
 		originMicros: state.originMicros,

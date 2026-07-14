@@ -30,15 +30,15 @@ func (t *Trace) RenderableTrace() rendertrace.RenderableTrace {
 
 // ID returns this trace's stable ID within its corpus.
 func (t *Trace) ID() rendertrace.TraceID {
-	return rendertrace.TraceID(t.raw.TraceID)
+	return rendertrace.TraceID(t.traceID)
 }
 
 // DisplayName returns a human-facing trace name.
 func (t *Trace) DisplayName() string {
-	if t.raw.TraceID == "" {
+	if t.traceID == "" {
 		return "extended OTel trace"
 	}
-	return t.raw.TraceID
+	return t.traceID
 }
 
 // MomentString returns a human-facing string for a render-time moment.
@@ -76,6 +76,7 @@ func (t *Trace) Search(
 		Spans:                         map[rendertrace.SpanID]struct{}{},
 		CategoriesWithDescendantMatch: map[rendertrace.CategoryID]struct{}{},
 		SpansWithDescendantMatch:      map[rendertrace.SpanID]struct{}{},
+		CategoryDescendantMatchRanges: map[rendertrace.CategoryID][]rendertrace.TimeRange{},
 	}
 	if query == "" {
 		return ret, nil
@@ -101,7 +102,12 @@ func (t *Trace) Search(
 		)
 		ret.Spans[spanID] = struct{}{}
 		markSpanAncestors(ret, span, t.namer)
-		markSpanCategoryAncestors(ret, span.RootSpan().ParentCategory(hierarchy), t.namer)
+		markSpanCategoryAncestors(
+			ret,
+			span.RootSpan().ParentCategory(hierarchy),
+			rendertrace.TimeRange{Start: span.Start(), End: span.End()},
+			t.namer,
+		)
 	}
 	categoryFinder, err := traceparser.NewSpanFinder(spanPattern, t.trace)
 	if err != nil {
@@ -116,13 +122,16 @@ func (t *Trace) Search(
 			t.namer,
 		)
 		ret.Categories[categoryID] = struct{}{}
-		markSpanCategoryAncestors(ret, category.Parent(), t.namer)
+		if categoryRange, ok := categorySubtreeTimeRange(category); ok {
+			markSpanCategoryAncestors(ret, category.Parent(), categoryRange, t.namer)
+		}
 	}
 	return &rendertrace.SearchResult{
 		Categories:                    ret.Categories,
 		Spans:                         ret.Spans,
 		CategoriesWithDescendantMatch: ret.CategoriesWithDescendantMatch,
 		SpansWithDescendantMatch:      ret.SpansWithDescendantMatch,
+		CategoryDescendantMatchRanges: ret.CategoryDescendantMatchRanges,
 	}, nil
 }
 
@@ -418,7 +427,7 @@ func (t *Trace) criticalPathDisplaySpanID(
 		if (categoryView{category: category, namer: t.namer}).categoryIsOpen(view) {
 			continue
 		}
-		if syntheticID, ok := syntheticCategorySpanID(category); ok {
+		if syntheticID, ok := syntheticCategorySpanID(category, t.namer); ok {
 			return syntheticID, true
 		}
 		return "", false
@@ -428,13 +437,16 @@ func (t *Trace) criticalPathDisplaySpanID(
 
 func syntheticCategorySpanID(
 	category trace.Category[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
+	namer *Namer,
 ) (rendertrace.SpanID, bool) {
-	payload := category.Payload()
-	if payload == nil ||
-		payload.ID == "" {
+	if category == nil || namer == nil {
 		return "", false
 	}
-	return rendertrace.SpanID("synthetic-category:" + payload.ID), true
+	categoryUniqueID := namer.CategoryUniqueID(category)
+	if categoryUniqueID == "" {
+		return "", false
+	}
+	return rendertrace.SpanID("synthetic-category:" + categoryUniqueID), true
 }
 
 func markCriticalPathSpanVisibility(
@@ -542,18 +554,18 @@ func (cv categoryView) syntheticCategorySpan(view rendertrace.RenderView) render
 		return nil
 	}
 	payload := cv.category.Payload()
-	if payload == nil ||
-		payload.ID == "" {
+	if payload == nil {
 		return nil
 	}
-	concurrencyMap := cv.concurrency[payload.ID]
+	concurrencyMap := cv.concurrency[cv.namer.CategoryUniqueID(cv.category)]
 	if concurrencyMap == nil || len(concurrencyMap.Segments) == 0 || concurrencyMap.End <= concurrencyMap.Start {
 		return nil
 	}
 	return syntheticServiceSpanView{
-		categoryPayload: payload,
-		concurrencyMap:  concurrencyMap,
-		namer:           cv.namer,
+		categoryPayload:  payload,
+		categoryID:       cv.ID(),
+		categoryUniqueID: cv.namer.CategoryUniqueID(cv.category),
+		concurrencyMap:   concurrencyMap,
 	}
 }
 
@@ -613,9 +625,13 @@ func (cv categoryView) RenderTraceVizCategory(
 		secondaryColor = palette.searchMatch
 	}
 	expansionState := cv.categoryExpansionState(view)
+	categoryLabelFormat := "$(category_label)"
+	if !view.Request.ResolvedFeatures().Labels {
+		categoryLabelFormat = ""
+	}
 	return parent.Category(
-		category.New(payload.ID, payload.Name, payload.Name),
-		label.Format("$(category_label)"),
+		category.New(cv.namer.CategoryUniqueID(cv.category), payload.Name, payload.Name),
+		label.Format(categoryLabelFormat),
 		color.Primary(primaryColor),
 		color.Secondary(secondaryColor),
 		color.Stroke(palette.stroke),
@@ -790,6 +806,10 @@ func (sv criticalPathFrameSpanView) RenderTraceVizSpan(
 		name = "category"
 	}
 	serviceName := categoryPayload.ServiceName
+	categoryID := ""
+	if sv.node.frame.category != nil {
+		categoryID = sv.namer.CategoryUniqueID(sv.node.frame.category)
+	}
 	palette := paletteForTheme(view.Request.Theme)
 	serviceColor := serviceColor(serviceName, view)
 	start, end := sv.clippedRange(view.TemporalDomain)
@@ -803,7 +823,7 @@ func (sv criticalPathFrameSpanView) RenderTraceVizSpan(
 		util.StringProperty("span_kind", string(criticalPathCategoryFrameKind)),
 		util.StringProperty("span_name", name),
 		util.StringProperty("category_name", name),
-		util.StringProperty("category_id", categoryPayload.ID),
+		util.StringProperty("category_id", categoryID),
 		util.StringProperty("service_name", serviceName),
 		util.StringProperty("critical_path_strategy", view.Request.ResolvedCriticalPathStrategy()),
 		util.IntegerProperty("critical_path_first_sequence", int64(sv.node.firstSequence)),
@@ -1211,6 +1231,7 @@ func (style renderedCausalEventStyle) color(theme rendertrace.Theme) string {
 type renderPalette struct {
 	realSpan                       string
 	searchMatch                    string
+	causalityHighlight             string
 	stroke                         string
 	criticalPathCategory           string
 	criticalPathEdge               string
@@ -1231,6 +1252,7 @@ func paletteForTheme(theme rendertrace.Theme) renderPalette {
 		return renderPalette{
 			realSpan:                       "#93c5fd",
 			searchMatch:                    "#fb923c",
+			causalityHighlight:             "#fb923c",
 			stroke:                         "#111827",
 			criticalPathCategory:           "#cbd5e1",
 			criticalPathEdge:               "#c084fc",
@@ -1249,6 +1271,7 @@ func paletteForTheme(theme rendertrace.Theme) renderPalette {
 	return renderPalette{
 		realSpan:                       "#9ecae1",
 		searchMatch:                    "#f97316",
+		causalityHighlight:             "#f97316",
 		stroke:                         "#202124",
 		criticalPathCategory:           "#e8eaed",
 		criticalPathEdge:               "#3730a3",
@@ -1278,19 +1301,27 @@ type renderedCausalEvent struct {
 }
 
 type renderedCausalEventChip struct {
-	Start time.Duration
-	End   time.Duration
-	Event renderedCausalEvent
+	Start             time.Duration
+	End               time.Duration
+	Event             renderedCausalEvent
+	CausalityEntryIDs []string
+}
+
+type renderableSuspendInterval struct {
+	Start             time.Duration
+	End               time.Duration
+	CausalityEntryIDs []string
 }
 
 type syntheticServiceSpanView struct {
-	categoryPayload *CategoryPayload
-	concurrencyMap  *concurrency.Profile
-	namer           *Namer
+	categoryPayload  *CategoryPayload
+	categoryID       rendertrace.CategoryID
+	categoryUniqueID string
+	concurrencyMap   *concurrency.Profile
 }
 
 func (sv syntheticServiceSpanView) ID() rendertrace.SpanID {
-	return rendertrace.SpanID("synthetic-category:" + sv.categoryPayload.ID)
+	return rendertrace.SpanID("synthetic-category:" + sv.categoryUniqueID)
 }
 
 func (sv syntheticServiceSpanView) TimeRange() rendertrace.TimeRange {
@@ -1324,17 +1355,9 @@ func (sv syntheticServiceSpanView) RenderTraceVizSpan(
 		serviceName = sv.categoryPayload.Name
 	}
 	palette := paletteForTheme(view.Request.Theme)
+	features := view.Request.ResolvedFeatures()
 	serviceColor := serviceColor(serviceName, view)
-	syntheticTooltip := tooltipText(
-		serviceName,
-		"Kind: synthetic_service",
-		tooltipLine("Service", serviceName),
-		fmt.Sprintf("Peak concurrency: %d", sv.concurrencyMap.Peak),
-		durationTooltipLine(spanRange.Start, spanRange.End),
-	)
-	renderedSpan := parent.Span(
-		spanRange.Start,
-		spanRange.End,
+	spanProperties := []util.PropertyUpdate{
 		label.Format(""),
 		color.Primary(serviceColor),
 		color.Secondary(serviceColor),
@@ -1342,23 +1365,28 @@ func (sv syntheticServiceSpanView) RenderTraceVizSpan(
 		util.StringProperty("span_kind", "synthetic_service"),
 		util.StringProperty("span_name", serviceName),
 		util.StringProperty("service_name", serviceName),
-		util.StringProperty("category_id", sv.categoryPayload.ID),
+		util.StringProperty("category_id", sv.categoryUniqueID),
 		util.IntegerProperty("concurrency_peak", int64(sv.concurrencyMap.Peak)),
-		util.StringProperty("tooltip", syntheticTooltip),
-	)
-	addTraceOverlayNodes(renderedSpan, view, sv.ID())
-	for _, bucket := range renderableConcurrencyBuckets(sv.concurrencyMap, serviceName, spanRange, view) {
-		bucketTooltip := tooltipText(
+	}
+	if features.Tooltips {
+		spanProperties = append(spanProperties, util.StringProperty("tooltip", tooltipText(
 			serviceName,
-			"Kind: concurrency_heatmap",
+			"Kind: synthetic_service",
 			tooltipLine("Service", serviceName),
-			fmt.Sprintf("Avg concurrency: %.2f", bucket.Avg),
-			fmt.Sprintf("Peak concurrency: %d", bucket.Peak),
-			durationTooltipLine(bucket.Start, bucket.End),
-		)
-		renderedSpan.Subspan(
-			bucket.Start,
-			bucket.End,
+			fmt.Sprintf("Peak concurrency: %d", sv.concurrencyMap.Peak),
+			durationTooltipLine(spanRange.Start, spanRange.End),
+		)))
+	}
+	renderedSpan := parent.Span(
+		spanRange.Start,
+		spanRange.End,
+		spanProperties...,
+	)
+	if features.TraceEdges {
+		addTraceOverlayNodes(renderedSpan, view, sv.ID())
+	}
+	for _, bucket := range renderableConcurrencyBuckets(sv.concurrencyMap, serviceName, spanRange, view) {
+		bucketProperties := []util.PropertyUpdate{
 			label.Format(""),
 			color.Primary(bucket.Color),
 			color.Secondary(bucket.Color),
@@ -1367,13 +1395,90 @@ func (sv syntheticServiceSpanView) RenderTraceVizSpan(
 			util.StringProperty("span_kind", "synthetic_service"),
 			util.StringProperty("span_name", serviceName),
 			util.StringProperty("service_name", serviceName),
-			util.StringProperty("category_id", sv.categoryPayload.ID),
+			util.StringProperty("category_id", sv.categoryUniqueID),
 			util.DoubleProperty("concurrency_avg", bucket.Avg),
 			util.IntegerProperty("concurrency_peak", int64(bucket.Peak)),
-			util.StringProperty("tooltip", bucketTooltip),
+		}
+		if features.Tooltips {
+			bucketProperties = append(bucketProperties, util.StringProperty("tooltip", tooltipText(
+				serviceName,
+				"Kind: concurrency_heatmap",
+				tooltipLine("Service", serviceName),
+				fmt.Sprintf("Avg concurrency: %.2f", bucket.Avg),
+				fmt.Sprintf("Peak concurrency: %d", bucket.Peak),
+				durationTooltipLine(bucket.Start, bucket.End),
+			)))
+		}
+		renderedSpan.Subspan(
+			bucket.Start,
+			bucket.End,
+			bucketProperties...,
 		)
 	}
 	return renderedSpan, nil
+}
+
+func (sv syntheticServiceSpanView) MinimapMatchProjections(
+	view rendertrace.RenderView,
+) []rendertrace.MinimapMatchProjection {
+	if view.Request.Search == "" || view.SearchResult == nil {
+		return nil
+	}
+	palette := paletteForTheme(view.Request.Theme)
+	if categoryMatchesSearch(sv.categoryID, view) {
+		return []rendertrace.MinimapMatchProjection{{
+			TemporalRange: sv.TimeRange(),
+			Kind:          rendertrace.MinimapMatchDirect,
+			Color:         palette.searchMatch,
+		}}
+	}
+	ranges := view.SearchResult.CategoryDescendantMatchRanges[sv.categoryID]
+	ret := make([]rendertrace.MinimapMatchProjection, 0, len(ranges))
+	for _, matchRange := range ranges {
+		ret = append(ret, rendertrace.MinimapMatchProjection{
+			TemporalRange: matchRange,
+			Kind:          rendertrace.MinimapMatchRequiresExpansion,
+			Color:         palette.searchMatch,
+		})
+	}
+	return ret
+}
+
+func categorySubtreeTimeRange(
+	category trace.Category[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
+) (rendertrace.TimeRange, bool) {
+	var ret rendertrace.TimeRange
+	hasRange := false
+	var visitSpan func(trace.Span[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload])
+	visitSpan = func(span trace.Span[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload]) {
+		if !hasRange || span.Start() < ret.Start {
+			ret.Start = span.Start()
+		}
+		if !hasRange || span.End() > ret.End {
+			ret.End = span.End()
+		}
+		hasRange = true
+		for _, child := range span.ChildSpans() {
+			visitSpan(child)
+		}
+	}
+	for _, rootSpan := range category.RootSpans() {
+		visitSpan(rootSpan)
+	}
+	for _, child := range category.ChildCategories() {
+		childRange, ok := categorySubtreeTimeRange(child)
+		if !ok {
+			continue
+		}
+		if !hasRange || childRange.Start < ret.Start {
+			ret.Start = childRange.Start
+		}
+		if !hasRange || childRange.End > ret.End {
+			ret.End = childRange.End
+		}
+		hasRange = true
+	}
+	return ret, hasRange
 }
 
 type renderableConcurrencyBucket struct {
@@ -1528,6 +1633,22 @@ func spanMatchesSearch(spanID rendertrace.SpanID, view rendertrace.RenderView) b
 	return ok
 }
 
+func spanCategoryMatchesSearch(
+	span trace.Span[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
+	view rendertrace.RenderView,
+	namer *Namer,
+) bool {
+	category := span.RootSpan().ParentCategory(view.Request.HierarchyType)
+	if category == nil {
+		return false
+	}
+	categoryID := rendertrace.DefaultCategoryID[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload](
+		category,
+		namer,
+	)
+	return categoryMatchesSearch(categoryID, view)
+}
+
 func spanContainsSearchMatch(spanID rendertrace.SpanID, view rendertrace.RenderView) bool {
 	if view.SearchResult == nil {
 		return false
@@ -1547,6 +1668,7 @@ func spanPrimaryColor(spanID rendertrace.SpanID, view rendertrace.RenderView) st
 func markSpanCategoryAncestors(
 	searchResult *rendertrace.SearchResult,
 	category trace.Category[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
+	matchRange rendertrace.TimeRange,
 	namer *Namer,
 ) {
 	for cursor := category; cursor != nil; cursor = cursor.Parent() {
@@ -1555,6 +1677,10 @@ func markSpanCategoryAncestors(
 			namer,
 		)
 		searchResult.CategoriesWithDescendantMatch[categoryID] = struct{}{}
+		searchResult.CategoryDescendantMatchRanges[categoryID] = append(
+			searchResult.CategoryDescendantMatchRanges[categoryID],
+			matchRange,
+		)
 	}
 }
 
@@ -1619,7 +1745,7 @@ func categoryVisible(
 	if !categorySubtreeContainsFocusedSpan(category, view) {
 		return false
 	}
-	if view.Request.HideEmptyCategories && !categorySubtreeOverlapsTimeRange(category, view.TemporalDomain) {
+	if view.Request.HideEmptyCategories && !categorySubtreeOverlapsTimeRange(category, view.VisibilityTemporalDomain) {
 		return false
 	}
 	categoryID := rendertrace.DefaultCategoryID[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload](
@@ -1647,7 +1773,7 @@ func spanVisible(
 	if !spanSubtreeContainsFocusedSpan(span, view) {
 		return false
 	}
-	if view.Request.HideEmptyCategories && !spanSubtreeOverlapsTimeRange(span, view.TemporalDomain) {
+	if view.Request.HideEmptyCategories && !spanSubtreeOverlapsTimeRange(span, view.VisibilityTemporalDomain) {
 		return false
 	}
 	spanID := rendertrace.DefaultSpanID[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload](
@@ -1751,19 +1877,14 @@ func (sv spanView) RenderTraceVizSpan(
 	if labelText == "" {
 		labelText = payload.SpanID
 	}
-	spanSuspends := spanSuspendCount(sv.span)
-	spanCausalEvents := spanCausalEventCount(sv.span)
-	spanTooltipLines := append(
-		spanIdentityTooltipLines(labelText, payload),
-		fmt.Sprintf("Suspends: %d", spanSuspends),
-		fmt.Sprintf("Causal events: %d", spanCausalEvents),
-		durationTooltipLine(sv.span.Start(), sv.span.End()),
-	)
+	features := view.Request.ResolvedFeatures()
 	palette := paletteForTheme(view.Request.Theme)
-	renderedSpan := parent.Span(
-		sv.span.Start(),
-		sv.span.End(),
-		label.Format("$(span_name)"),
+	spanLabelFormat := "$(span_name)"
+	if !features.Labels {
+		spanLabelFormat = ""
+	}
+	spanProperties := []util.PropertyUpdate{
+		label.Format(spanLabelFormat),
 		color.Primary(spanPrimaryColor(sv.ID(), view)),
 		color.Secondary(spanPrimaryColor(sv.ID(), view)),
 		color.Stroke(palette.stroke),
@@ -1772,73 +1893,124 @@ func (sv spanView) RenderTraceVizSpan(
 		util.StringProperty("service_name", payload.ServiceName),
 		util.StringProperty("process_id", payload.ProcessID),
 		util.StringProperty("operation_name", payload.OperationName),
-		util.IntegerProperty("suspend_count", int64(spanSuspends)),
-		util.IntegerProperty("causal_event_count", int64(spanCausalEvents)),
-		util.StringProperty("tooltip", tooltipText(spanTooltipLines...)),
-	)
-	addTraceOverlayNodes(renderedSpan, view, sv.ID())
-	for _, suspend := range renderableSuspendIntervals(sv.span, view) {
-		suspendTooltipLines := append(
-			[]string{labelText, "Kind: suspend"},
-			spanIdentityTooltipLines(labelText, payload)[1:]...,
+	}
+	if features.Tooltips {
+		spanSuspends := spanSuspendCount(sv.span)
+		spanCausalEvents := spanCausalEventCount(sv.span)
+		spanTooltipLines := append(
+			spanIdentityTooltipLines(labelText, payload),
+			fmt.Sprintf("Suspends: %d", spanSuspends),
+			fmt.Sprintf("Causal events: %d", spanCausalEvents),
+			durationTooltipLine(sv.span.Start(), sv.span.End()),
 		)
-		suspendTooltipLines = append(suspendTooltipLines, durationTooltipLine(suspend.Start, suspend.End))
-		renderedSpan.Subspan(
-			suspend.Start,
-			suspend.End,
-			color.Primary(palette.suspendOverlay),
-			color.Secondary(palette.suspendOverlay),
-			color.Stroke(palette.stroke),
-			util.StringProperty("subspan_kind", "suspend"),
-			util.StringProperty("span_id", payload.SpanID),
-			util.StringProperty("span_name", labelText),
-			util.StringProperty("service_name", payload.ServiceName),
-			util.StringProperty("process_id", payload.ProcessID),
-			util.StringProperty("operation_name", payload.OperationName),
-			util.StringProperty("tooltip", tooltipText(suspendTooltipLines...)),
+		spanProperties = append(spanProperties,
+			util.IntegerProperty("suspend_count", int64(spanSuspends)),
+			util.IntegerProperty("causal_event_count", int64(spanCausalEvents)),
+			util.StringProperty("tooltip", tooltipText(spanTooltipLines...)),
 		)
 	}
-	for _, eventChip := range renderableCausalEventChips(sv.span, view, sv.namer) {
-		eventStyle := renderedCausalEventStyles[eventChip.Event.kind]
-		eventColor := eventStyle.color(view.Request.Theme)
-		eventTooltipLines := append(
-			[]string{
-				labelText,
-				"Kind: causal_event",
-				tooltipLine("Event", eventChip.Event.displayName),
-				tooltipLine("Event type", string(eventChip.Event.kind)),
-				tooltipLine("Event time", sv.namer.MomentString(eventChip.Event.moment)),
-				tooltipLine("Label", eventChip.Event.label),
-				tooltipLine("Dependency", eventChip.Event.dependencyType),
-				tooltipLine("Dependency key", eventChip.Event.dependencyKey),
-				eventChip.Event.detail,
-			},
-			spanIdentityTooltipLines(labelText, payload)[1:]...,
-		)
-		renderedSpan.Subspan(
-			eventChip.Start,
-			eventChip.End,
-			color.Primary(eventColor),
-			color.Secondary(eventColor),
-			color.Stroke(palette.stroke),
-			util.StringProperty("subspan_kind", "causal_event"),
-			util.StringProperty("event_type", string(eventChip.Event.kind)),
-			util.StringProperty("event_display_name", eventChip.Event.displayName),
-			util.StringProperty("event_time", sv.namer.MomentString(eventChip.Event.moment)),
-			util.StringProperty("event_label", eventChip.Event.label),
-			util.StringProperty("event_dependency_type", eventChip.Event.dependencyType),
-			util.StringProperty("event_dependency_key", eventChip.Event.dependencyKey),
-			util.StringProperty("event_other_span_id", eventChip.Event.otherSpanID),
-			util.StringProperty("event_detail", eventChip.Event.detail),
-			util.StringProperty("span_id", payload.SpanID),
-			util.StringProperty("span_name", labelText),
-			util.StringProperty("service_name", payload.ServiceName),
-			util.StringProperty("process_id", payload.ProcessID),
-			util.StringProperty("operation_name", payload.OperationName),
-			util.StringProperty("tooltip", tooltipText(eventTooltipLines...)),
-		)
+	renderedSpan := parent.Span(
+		sv.span.Start(),
+		sv.span.End(),
+		spanProperties...,
+	)
+	if features.TraceEdges {
+		addTraceOverlayNodes(renderedSpan, view, sv.ID())
+	}
+	if features.SuspendIntervals {
+		for _, suspend := range renderableSuspendIntervals(sv.span, view) {
+			suspendProperties := []util.PropertyUpdate{
+				color.Primary(palette.suspendOverlay),
+				color.Secondary(palette.causalityHighlight),
+				color.Stroke(palette.stroke),
+				util.StringsProperty(CausalityEntryIDsProperty, suspend.CausalityEntryIDs...),
+				util.StringProperty("subspan_kind", "suspend"),
+				util.StringProperty("span_id", payload.SpanID),
+				util.StringProperty("span_name", labelText),
+				util.StringProperty("service_name", payload.ServiceName),
+				util.StringProperty("process_id", payload.ProcessID),
+				util.StringProperty("operation_name", payload.OperationName),
+			}
+			if features.Tooltips {
+				suspendTooltipLines := append(
+					[]string{labelText, "Kind: suspend"},
+					spanIdentityTooltipLines(labelText, payload)[1:]...,
+				)
+				suspendTooltipLines = append(suspendTooltipLines, durationTooltipLine(suspend.Start, suspend.End))
+				suspendProperties = append(suspendProperties,
+					util.StringProperty("tooltip", tooltipText(suspendTooltipLines...)))
+			}
+			renderedSpan.Subspan(
+				suspend.Start,
+				suspend.End,
+				suspendProperties...,
+			)
+		}
+	}
+	if features.CausalEvents {
+		for _, eventChip := range renderableCausalEventChips(sv.span, view, sv.namer) {
+			eventStyle := renderedCausalEventStyles[eventChip.Event.kind]
+			eventColor := eventStyle.color(view.Request.Theme)
+			eventProperties := []util.PropertyUpdate{
+				color.Primary(eventColor),
+				color.Secondary(palette.causalityHighlight),
+				color.Stroke(palette.stroke),
+				util.StringsProperty(CausalityEntryIDsProperty, eventChip.CausalityEntryIDs...),
+				util.StringProperty("subspan_kind", "causal_event"),
+				util.StringProperty("event_type", string(eventChip.Event.kind)),
+				util.StringProperty("event_display_name", eventChip.Event.displayName),
+				util.StringProperty("event_time", sv.namer.MomentString(eventChip.Event.moment)),
+				util.StringProperty("event_label", eventChip.Event.label),
+				util.StringProperty("event_dependency_type", eventChip.Event.dependencyType),
+				util.StringProperty("event_dependency_key", eventChip.Event.dependencyKey),
+				util.StringProperty("event_other_span_id", eventChip.Event.otherSpanID),
+				util.StringProperty("event_detail", eventChip.Event.detail),
+				util.StringProperty("span_id", payload.SpanID),
+				util.StringProperty("span_name", labelText),
+				util.StringProperty("service_name", payload.ServiceName),
+				util.StringProperty("process_id", payload.ProcessID),
+				util.StringProperty("operation_name", payload.OperationName),
+			}
+			if features.Tooltips {
+				eventTooltipLines := append(
+					[]string{
+						labelText,
+						"Kind: causal_event",
+						tooltipLine("Event", eventChip.Event.displayName),
+						tooltipLine("Event type", string(eventChip.Event.kind)),
+						tooltipLine("Event time", sv.namer.MomentString(eventChip.Event.moment)),
+						tooltipLine("Label", eventChip.Event.label),
+						tooltipLine("Dependency", eventChip.Event.dependencyType),
+						tooltipLine("Dependency key", eventChip.Event.dependencyKey),
+						eventChip.Event.detail,
+					},
+					spanIdentityTooltipLines(labelText, payload)[1:]...,
+				)
+				eventProperties = append(eventProperties,
+					util.StringProperty("tooltip", tooltipText(eventTooltipLines...)))
+			}
+			renderedSpan.Subspan(
+				eventChip.Start,
+				eventChip.End,
+				eventProperties...,
+			)
+		}
 	}
 	return renderedSpan, nil
+}
+
+func (sv spanView) MinimapMatchProjections(
+	view rendertrace.RenderView,
+) []rendertrace.MinimapMatchProjection {
+	if view.Request.Search == "" ||
+		(!spanMatchesSearch(sv.ID(), view) && !spanCategoryMatchesSearch(sv.span, view, sv.namer)) {
+		return nil
+	}
+	return []rendertrace.MinimapMatchProjection{{
+		TemporalRange: sv.TimeRange(),
+		Kind:          rendertrace.MinimapMatchDirect,
+		Color:         paletteForTheme(view.Request.Theme).searchMatch,
+	}}
 }
 
 func addTraceOverlayNodes(
@@ -1923,16 +2095,23 @@ func renderableCausalEventChips(
 		return events[i].sequence < events[j].sequence
 	})
 
-	selectedByBucket := map[int]renderedCausalEvent{}
+	type selectedEventBucket struct {
+		event    renderedCausalEvent
+		entryIDs []string
+	}
+	spanID := span.Payload().SpanID
+	selectedByBucket := map[int]*selectedEventBucket{}
 	for _, event := range events {
 		if event.moment < domain.Start || event.moment > domain.End {
 			continue
 		}
 		bucket := bucketIndexFloor(event.moment, domain, bucketCount)
-		if _, ok := selectedByBucket[bucket]; ok {
-			continue
+		selected, ok := selectedByBucket[bucket]
+		if !ok {
+			selected = &selectedEventBucket{event: event}
+			selectedByBucket[bucket] = selected
 		}
-		selectedByBucket[bucket] = event
+		selected.entryIDs = append(selected.entryIDs, eventCausalityEntryID(spanID, event))
 	}
 	if len(selectedByBucket) == 0 {
 		return nil
@@ -1941,7 +2120,7 @@ func renderableCausalEventChips(
 	domainDuration := domain.End - domain.Start
 	var ret []renderedCausalEventChip
 	for idx := 0; idx < bucketCount; idx++ {
-		event, ok := selectedByBucket[idx]
+		selected, ok := selectedByBucket[idx]
 		if !ok {
 			continue
 		}
@@ -1954,9 +2133,10 @@ func renderableCausalEventChips(
 		end = minDuration(end, minDuration(span.End(), domain.End))
 		if end > start {
 			ret = append(ret, renderedCausalEventChip{
-				Start: start,
-				End:   end,
-				Event: event,
+				Start:             start,
+				End:               end,
+				Event:             selected.event,
+				CausalityEntryIDs: selected.entryIDs,
 			})
 		}
 	}
@@ -2145,7 +2325,7 @@ func eventRenderPriority(kind renderedCausalEventKind) int {
 func renderableSuspendIntervals(
 	span trace.Span[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
 	view rendertrace.RenderView,
-) []rendertrace.TimeRange {
+) []renderableSuspendInterval {
 	return renderableSuspendIntervalsInDomain(span, view, view.TemporalDomain)
 }
 
@@ -2153,10 +2333,10 @@ func renderableSuspendIntervalsInDomain(
 	span trace.Span[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
 	view rendertrace.RenderView,
 	domain rendertrace.TimeRange,
-) []rendertrace.TimeRange {
+) []renderableSuspendInterval {
 	domain.Start = maxDuration(domain.Start, view.TemporalDomain.Start)
 	domain.End = minDuration(domain.End, view.TemporalDomain.End)
-	rawSuspends := suspendIntervals(span, domain)
+	rawSuspends := unclippedSuspendIntervals(span)
 	if len(rawSuspends) == 0 {
 		return nil
 	}
@@ -2172,10 +2352,20 @@ func renderableSuspendIntervalsInDomain(
 		return nil
 	}
 	bucketCoverage := make([]time.Duration, bucketCount)
+	bucketEntryIDs := make([][]string, bucketCount)
 	domainDuration := domain.End - domain.Start
+	spanID := span.Payload().SpanID
 	for _, suspend := range rawSuspends {
-		startIdx := bucketIndexFloor(suspend.Start, domain, bucketCount)
-		endIdx := bucketIndexCeil(suspend.End, domain, bucketCount) - 1
+		clippedSuspend := rendertrace.TimeRange{
+			Start: maxDuration(suspend.Start, domain.Start),
+			End:   minDuration(suspend.End, domain.End),
+		}
+		if clippedSuspend.End <= clippedSuspend.Start {
+			continue
+		}
+		entryID := suspendCausalityEntryID(spanID, suspend)
+		startIdx := bucketIndexFloor(clippedSuspend.Start, domain, bucketCount)
+		endIdx := bucketIndexCeil(clippedSuspend.End, domain, bucketCount) - 1
 		if startIdx < 0 {
 			startIdx = 0
 		}
@@ -2188,14 +2378,15 @@ func renderableSuspendIntervalsInDomain(
 			if idx == bucketCount-1 {
 				bucketEnd = domain.End
 			}
-			overlapStart := maxDuration(suspend.Start, bucketStart)
-			overlapEnd := minDuration(suspend.End, bucketEnd)
+			overlapStart := maxDuration(clippedSuspend.Start, bucketStart)
+			overlapEnd := minDuration(clippedSuspend.End, bucketEnd)
 			if overlapEnd > overlapStart {
 				bucketCoverage[idx] += overlapEnd - overlapStart
+				bucketEntryIDs[idx] = appendUniqueString(bucketEntryIDs[idx], entryID)
 			}
 		}
 	}
-	var ret []rendertrace.TimeRange
+	var ret []renderableSuspendInterval
 	var runStart = -1
 	for idx, coverage := range bucketCoverage {
 		bucketStart := domain.Start + time.Duration(float64(domainDuration)*float64(idx)/float64(bucketCount))
@@ -2220,7 +2411,17 @@ func renderableSuspendIntervalsInDomain(
 			start = maxDuration(start, maxDuration(span.Start(), domain.Start))
 			end = minDuration(end, minDuration(span.End(), domain.End))
 			if end > start {
-				ret = append(ret, rendertrace.TimeRange{Start: start, End: end})
+				var entryIDs []string
+				for bucket := runStart; bucket <= runEnd; bucket++ {
+					for _, entryID := range bucketEntryIDs[bucket] {
+						entryIDs = appendUniqueString(entryIDs, entryID)
+					}
+				}
+				ret = append(ret, renderableSuspendInterval{
+					Start:             start,
+					End:               end,
+					CausalityEntryIDs: entryIDs,
+				})
 			}
 			runStart = -1
 		}
@@ -2232,6 +2433,16 @@ func suspendIntervals(
 	span trace.Span[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
 	domain rendertrace.TimeRange,
 ) []rendertrace.TimeRange {
+	var ret []rendertrace.TimeRange
+	for _, suspend := range unclippedSuspendIntervals(span) {
+		appendClippedSuspend(&ret, suspend.Start, suspend.End, domain)
+	}
+	return ret
+}
+
+func unclippedSuspendIntervals(
+	span trace.Span[time.Duration, *CategoryPayload, *SpanPayload, *DependencyPayload],
+) []rendertrace.TimeRange {
 	elementarySpans := span.ElementarySpans()
 	if len(elementarySpans) == 0 {
 		return nil
@@ -2240,16 +2451,25 @@ func suspendIntervals(
 	cursor := span.Start()
 	for _, elementarySpan := range elementarySpans {
 		if elementarySpan.Start() > cursor {
-			appendClippedSuspend(&ret, cursor, elementarySpan.Start(), domain)
+			ret = append(ret, rendertrace.TimeRange{Start: cursor, End: elementarySpan.Start()})
 		}
 		if elementarySpan.End() > cursor {
 			cursor = elementarySpan.End()
 		}
 	}
 	if span.End() > cursor {
-		appendClippedSuspend(&ret, cursor, span.End(), domain)
+		ret = append(ret, rendertrace.TimeRange{Start: cursor, End: span.End()})
 	}
 	return ret
+}
+
+func appendUniqueString(values []string, value string) []string {
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
 }
 
 func appendClippedSuspend(ret *[]rendertrace.TimeRange, start, end time.Duration, domain rendertrace.TimeRange) {

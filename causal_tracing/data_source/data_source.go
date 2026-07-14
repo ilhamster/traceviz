@@ -14,6 +14,7 @@ import (
 	"github.com/ilhamster/traceviz/causal_tracing/extendedotel"
 	"github.com/ilhamster/traceviz/causal_tracing/rendertrace"
 	"github.com/ilhamster/traceviz/server/go/category"
+	"github.com/ilhamster/traceviz/server/go/color"
 	"github.com/ilhamster/traceviz/server/go/table"
 	"github.com/ilhamster/traceviz/server/go/util"
 	criticalpath "github.com/ilhamster/tracey/critical_path"
@@ -59,6 +60,12 @@ const (
 	// parameter. When focus_span_ids is present, it renders the
 	// focused span stack and required ancestry.
 	traceQuery = "causal_tracing.trace"
+	// traceMinimapQuery returns a reduced-detail, full-temporal-domain TraceViz
+	// trace for overview rendering. It shares the main trace's hierarchy,
+	// expansion, search, and visibility controls, but omits focus state, labels,
+	// tooltips, event chips, and trace edges. temporal_domain_start and
+	// temporal_domain_end affect it only when hide_empty is enabled.
+	traceMinimapQuery = "causal_tracing.trace_minimap"
 	// criticalPathTraceQuery returns the selected trace's current critical path
 	// rendered as an overtime TraceViz trace. It consumes corpus_path, trace_id,
 	// temporal_domain_start, temporal_domain_end, critical_path_start,
@@ -67,7 +74,7 @@ const (
 	criticalPathTraceQuery = "causal_tracing.critical_path_trace"
 	// spanCausalityQuery returns a table of causality entries for the current
 	// focused span stack head. It consumes corpus_path, trace_id, and
-	// focus_span_ids.
+	// focus_span_ids and theme.
 	spanCausalityQuery = "causal_tracing.span_causality"
 	// validateSearchQuery validates the current draft search string as a Tracey
 	// span specifier and returns a small status response. Parse failures are
@@ -172,7 +179,6 @@ var (
 // traces.
 type Collection struct {
 	Path               string
-	Raw                *extendedotel.RawResponse
 	Converted          []*extendedotel.Trace
 	convertedByTraceID map[string]*extendedotel.Trace
 	mu                 sync.Mutex
@@ -225,7 +231,7 @@ func (f *FileTraceFetcher) Fetch(ctx context.Context, tracePath string) (*Collec
 	if err != nil {
 		return nil, err
 	}
-	return newCollection(tracePath, raw, converted), nil
+	return newCollection(tracePath, converted), nil
 }
 
 func (f *FileTraceFetcher) resolveTracePath(tracePath string) (string, error) {
@@ -254,16 +260,15 @@ func (f *FileTraceFetcher) resolveTracePath(tracePath string) (string, error) {
 	return resolvedPath, nil
 }
 
-func newCollection(path string, raw *extendedotel.RawResponse, converted []*extendedotel.Trace) *Collection {
+func newCollection(path string, converted []*extendedotel.Trace) *Collection {
 	ret := &Collection{
 		Path:               path,
-		Raw:                raw,
 		Converted:          converted,
 		convertedByTraceID: map[string]*extendedotel.Trace{},
 		traceVariants:      map[string]*extendedotel.Trace{},
 	}
 	for _, convertedTrace := range converted {
-		traceID := convertedTrace.RawTrace().TraceID
+		traceID := convertedTrace.TraceID()
 		ret.convertedByTraceID[traceID] = convertedTrace
 		ret.traceVariants[corpusTraceVariantKey{
 			corpusPath: path,
@@ -338,6 +343,7 @@ func (ds *DataSource) SupportedDataSeriesQueries() []string {
 		criticalPathStrategiesQuery,
 		traceDiagnosticsQuery,
 		traceQuery,
+		traceMinimapQuery,
 		criticalPathTraceQuery,
 		spanCausalityQuery,
 		validateSearchQuery,
@@ -703,7 +709,26 @@ func (ds *DataSource) HandleDataSeriesRequests(
 			if loadErr != nil {
 				return loadErr
 			}
-			if err := handleTraceQuery(ctx, series, req.Options, coll, selectedTraceID, committedTransformTemplate, selectedHierarchyName, selectedFocusSpanIDs, selectedExpandedCategoryIDs, selectedTemporalDomain, criticalPathStart, criticalPathEnd, criticalPathStrategy, search, expandMatches, hideNonMatching, hideEmpty, showOnlyCriticalPath, selectedTheme); err != nil {
+			if err := handleTraceQuery(ctx, series, req.Options, coll, selectedTraceID, committedTransformTemplate, selectedHierarchyName, selectedExpandedCategoryIDs, criticalPathStart, criticalPathEnd, criticalPathStrategy, search, expandMatches, hideNonMatching, hideEmpty, showOnlyCriticalPath, selectedTheme, traceQueryRenderMode{
+				focusSpanIDs:             selectedFocusSpanIDs,
+				temporalDomain:           selectedTemporalDomain,
+				visibilityTemporalDomain: selectedTemporalDomain,
+			}); err != nil {
+				return err
+			}
+		case traceMinimapQuery:
+			if loadErr != nil {
+				return loadErr
+			}
+			features := rendertrace.MinimapRenderFeatures()
+			var visibilityTemporalDomain *rendertrace.TimeRange
+			if hideEmpty {
+				visibilityTemporalDomain = selectedTemporalDomain
+			}
+			if err := handleTraceQuery(ctx, series, req.Options, coll, selectedTraceID, committedTransformTemplate, selectedHierarchyName, selectedExpandedCategoryIDs, criticalPathStart, criticalPathEnd, criticalPathStrategy, search, expandMatches, hideNonMatching, hideEmpty, showOnlyCriticalPath, selectedTheme, traceQueryRenderMode{
+				visibilityTemporalDomain: visibilityTemporalDomain,
+				features:                 &features,
+			}); err != nil {
 				return err
 			}
 		case criticalPathTraceQuery:
@@ -717,7 +742,7 @@ func (ds *DataSource) HandleDataSeriesRequests(
 			if loadErr != nil {
 				return loadErr
 			}
-			if err := handleSpanCausalityQuery(series, coll, selectedTraceID, committedTransformTemplate, selectedFocusSpanIDs); err != nil {
+			if err := handleSpanCausalityQuery(series, coll, selectedTraceID, committedTransformTemplate, selectedFocusSpanIDs, selectedTheme); err != nil {
 				return err
 			}
 		case validateSearchQuery:
@@ -964,6 +989,13 @@ func writeCriticalPathValidationStatus(
 	)
 }
 
+type traceQueryRenderMode struct {
+	focusSpanIDs             []string
+	temporalDomain           *rendertrace.TimeRange
+	visibilityTemporalDomain *rendertrace.TimeRange
+	features                 *rendertrace.RenderFeatures
+}
+
 func handleTraceQuery(
 	ctx context.Context,
 	db util.DataBuilder,
@@ -972,9 +1004,7 @@ func handleTraceQuery(
 	selectedTraceID string,
 	transformTemplate string,
 	selectedHierarchyName string,
-	focusSpanIDs []string,
 	expandedCategoryIDs []string,
-	temporalDomain *rendertrace.TimeRange,
 	criticalPathStart string,
 	criticalPathEnd string,
 	criticalPathStrategy string,
@@ -984,6 +1014,7 @@ func handleTraceQuery(
 	hideEmpty bool,
 	showOnlyCriticalPath bool,
 	theme rendertrace.Theme,
+	mode traceQueryRenderMode,
 ) error {
 	if coll == nil {
 		return fmt.Errorf("corpus is not loaded")
@@ -1012,21 +1043,23 @@ func handleTraceQuery(
 		displayMode = rendertrace.DisplayOnlyMatches
 	}
 	req := rendertrace.RenderRequest{
-		TraceID:              rendertrace.TraceID(selectedTraceID),
-		HierarchyType:        hierarchyType,
-		DisplayMode:          displayMode,
-		Theme:                theme,
-		TraceViewRangePx:     traceViewWidthPx,
-		FocusSpanIDs:         renderFocusSpanIDs(focusSpanIDs),
-		ExplicitExpanded:     renderExpandedCategoryIDs(expandedCategoryIDs),
-		TemporalDomain:       temporalDomain,
-		CriticalPathStart:    criticalPathStart,
-		CriticalPathEnd:      criticalPathEnd,
-		CriticalPathStrategy: criticalPathStrategy,
-		Search:               search,
-		ExpandMatches:        expandMatches,
-		HideEmptyCategories:  hideEmpty,
-		ShowOnlyCriticalPath: showOnlyCriticalPath,
+		TraceID:                  rendertrace.TraceID(selectedTraceID),
+		HierarchyType:            hierarchyType,
+		DisplayMode:              displayMode,
+		Theme:                    theme,
+		TraceViewRangePx:         traceViewWidthPx,
+		FocusSpanIDs:             renderFocusSpanIDs(mode.focusSpanIDs),
+		ExplicitExpanded:         renderExpandedCategoryIDs(expandedCategoryIDs),
+		TemporalDomain:           mode.temporalDomain,
+		VisibilityTemporalDomain: mode.visibilityTemporalDomain,
+		CriticalPathStart:        criticalPathStart,
+		CriticalPathEnd:          criticalPathEnd,
+		CriticalPathStrategy:     criticalPathStrategy,
+		Search:                   search,
+		ExpandMatches:            expandMatches,
+		HideEmptyCategories:      hideEmpty,
+		ShowOnlyCriticalPath:     showOnlyCriticalPath,
+		Features:                 mode.features,
 	}
 	return convertedTrace.RenderableTrace().RenderTraceViz(ctx, req, db)
 }
@@ -1087,6 +1120,7 @@ func handleSpanCausalityQuery(
 	selectedTraceID string,
 	transformTemplate string,
 	focusSpanIDs []string,
+	theme rendertrace.Theme,
 ) error {
 	causalityTable := table.New(
 		db,
@@ -1121,7 +1155,10 @@ func handleSpanCausalityQuery(
 			table.Cell(causalityDepKeyCol, util.String("")),
 			table.Cell(causalityOtherCol, util.String("")),
 			table.Cell(causalityDetailCol, util.String(err.Error())),
-		).With(util.StringProperty(spanIDKey, focusSpanID))
+		).With(
+			util.StringProperty(spanIDKey, focusSpanID),
+			util.StringProperty(extendedotel.CausalityEntryIDProperty, ""),
+		)
 		return nil
 	}
 	for _, entry := range entries {
@@ -1142,9 +1179,18 @@ func handleSpanCausalityQuery(
 		).With(
 			util.StringProperty(spanIDKey, focusSpanID),
 			util.StringProperty(otherSpanIDKey, entry.OtherSpanID),
+			util.StringProperty(extendedotel.CausalityEntryIDProperty, entry.ID),
+			color.Secondary(spanCausalityRowHighlightColor(theme)),
 		)
 	}
 	return nil
+}
+
+func spanCausalityRowHighlightColor(theme rendertrace.Theme) string {
+	if theme == rendertrace.ThemeDark {
+		return "rgba(100, 116, 139, 0.48)"
+	}
+	return "rgba(148, 163, 184, 0.30)"
 }
 
 func renderFocusSpanIDs(focusSpanIDs []string) []rendertrace.SpanID {
@@ -1189,14 +1235,14 @@ func handleCorpusTracesQuery(db util.DataBuilder, coll *Collection, loadErr erro
 		return
 	}
 	for _, convertedTrace := range coll.Converted {
-		rawTrace := convertedTrace.RawTrace()
+		traceID := convertedTrace.TraceID()
 		traceTable.Row(
-			table.Cell(diagTraceCol, util.String(rawTrace.TraceID)),
+			table.Cell(diagTraceCol, util.String(traceID)),
 			table.Cell(spansCol, util.Integer(int64(len(convertedTrace.Trace().RootSpans())))),
 			table.Cell(diagsCol, util.Integer(int64(len(convertedTrace.Diagnostics())))),
-			table.Cell(durationCol, util.Duration(rawTraceDuration(rawTrace))),
-			table.Cell(servicesCol, util.Integer(int64(rawTraceServiceCount(rawTrace)))),
-		).With(util.StringProperty(traceIDKey, rawTrace.TraceID))
+			table.Cell(durationCol, util.Duration(convertedTraceDuration(convertedTrace))),
+			table.Cell(servicesCol, util.Integer(int64(traceServiceCount(convertedTrace)))),
+		).With(util.StringProperty(traceIDKey, traceID))
 	}
 }
 
@@ -1303,37 +1349,6 @@ func handleTraceDiagnosticsQuery(
 	}
 }
 
-func rawTraceDuration(rawTrace extendedotel.RawTrace) time.Duration {
-	if len(rawTrace.Spans) == 0 {
-		return 0
-	}
-	start := rawTrace.Spans[0].StartTime
-	end := rawTrace.Spans[0].StartTime + rawTrace.Spans[0].Duration
-	for _, span := range rawTrace.Spans[1:] {
-		if span.StartTime < start {
-			start = span.StartTime
-		}
-		spanEnd := span.StartTime + span.Duration
-		if spanEnd > end {
-			end = spanEnd
-		}
-	}
-	return time.Duration(end-start) * time.Microsecond
-}
-
-func rawTraceServiceCount(rawTrace extendedotel.RawTrace) int {
-	services := map[string]struct{}{}
-	for _, span := range rawTrace.Spans {
-		process := rawTrace.Processes[span.ProcessID]
-		serviceName := process.ServiceName
-		if serviceName == "" {
-			serviceName = "unknown-service"
-		}
-		services[serviceName] = struct{}{}
-	}
-	return len(services)
-}
-
 func convertedTraceDuration(convertedTrace *extendedotel.Trace) time.Duration {
 	timeRange := convertedTrace.TimeRange()
 	return timeRange.End - timeRange.Start
@@ -1341,13 +1356,20 @@ func convertedTraceDuration(convertedTrace *extendedotel.Trace) time.Duration {
 
 func traceServiceCount(convertedTrace *extendedotel.Trace) int {
 	services := map[string]struct{}{}
-	for _, rootSpan := range convertedTrace.Trace().RootSpans() {
-		payload := rootSpan.Payload()
+	var visitSpan func(trace.Span[time.Duration, *extendedotel.CategoryPayload, *extendedotel.SpanPayload, *extendedotel.DependencyPayload])
+	visitSpan = func(span trace.Span[time.Duration, *extendedotel.CategoryPayload, *extendedotel.SpanPayload, *extendedotel.DependencyPayload]) {
+		payload := span.Payload()
 		if payload == nil || payload.ServiceName == "" {
 			services["unknown-service"] = struct{}{}
-			continue
+		} else {
+			services[payload.ServiceName] = struct{}{}
 		}
-		services[payload.ServiceName] = struct{}{}
+		for _, childSpan := range span.ChildSpans() {
+			visitSpan(childSpan)
+		}
+	}
+	for _, rootSpan := range convertedTrace.Trace().RootSpans() {
+		visitSpan(rootSpan)
 	}
 	return len(services)
 }

@@ -2,6 +2,8 @@ import 'jasmine';
 
 import {
   IntegerValue,
+  StringListValue,
+  StringSetValue,
   StringValue,
   UrlHash,
   Value,
@@ -158,5 +160,55 @@ describe('url hash', () => {
     expect(fakeWindow.location.hash).toBe(
       '#collection_name=trace-1&magic_number=42',
     );
+  });
+
+  it('round trips list and set values through compressed state', () => {
+    const expandedCategoryIDs = new StringSetValue(
+      new Set(['category/child', 'category/root']),
+    );
+    const focusSpanIDs = new StringListValue(['span/child', 'span/root']);
+    const fakeWindow = new FakeWindow();
+    const urlHash = new UrlHash({
+      encoded: new ValueMap(
+        new Map<string, Value>([
+          ['expanded_category_ids', expandedCategoryIDs],
+          ['focus_span_ids', focusSpanIDs],
+        ]),
+      ),
+      window: fakeWindow as unknown as Window,
+      schedule: (callback: () => void) => {
+        callback();
+      },
+    });
+    urlHash.start();
+
+    expect(fakeWindow.location.hash).toMatch(/^#state=/);
+    expect(fakeWindow.location.hash).not.toContain('expanded_category_ids');
+    expect(fakeWindow.location.hash).not.toContain('focus_span_ids');
+    expect(fakeWindow.location.hash).not.toContain('category%2Froot');
+    expect(fakeWindow.location.hash).not.toContain('span%2Froot');
+    urlHash.stop();
+
+    const restoredExpandedCategoryIDs = new StringSetValue(new Set());
+    const restoredFocusSpanIDs = new StringListValue([]);
+    const restoredUrlHash = new UrlHash({
+      encoded: new ValueMap(
+        new Map<string, Value>([
+          ['expanded_category_ids', restoredExpandedCategoryIDs],
+          ['focus_span_ids', restoredFocusSpanIDs],
+        ]),
+      ),
+      window: fakeWindow as unknown as Window,
+      schedule: (callback: () => void) => {
+        callback();
+      },
+    });
+    restoredUrlHash.start();
+
+    expect(restoredExpandedCategoryIDs.val).toEqual(
+      new Set(['category/child', 'category/root']),
+    );
+    expect(restoredFocusSpanIDs.val).toEqual(['span/child', 'span/root']);
+    restoredUrlHash.stop();
   });
 });

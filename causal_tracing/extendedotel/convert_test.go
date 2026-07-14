@@ -97,6 +97,52 @@ func TestConvertTraceyTrace1Fixture(t *testing.T) {
 	}
 }
 
+func TestCausalityEntryIDsSurviveRenderingBins(t *testing.T) {
+	response, err := LoadRawResponseFile(filepath.Join("..", "testdata", "tracey-trace1-ct-logs.json"))
+	if err != nil {
+		t.Fatalf("LoadRawResponseFile() failed: %v", err)
+	}
+	converted, err := ConvertExtendedOtelTrace(response.Data[0])
+	if err != nil {
+		t.Fatalf("ConvertExtendedOtelTrace() failed: %v", err)
+	}
+
+	eventSpan := converted.SpanByID("s0.0.0")
+	events := spanCausalEvents(eventSpan, converted.namer)
+	eventView := rendertrace.RenderView{
+		Request: rendertrace.RenderRequest{TraceViewRangePx: 1},
+		TemporalDomain: rendertrace.TimeRange{
+			Start: eventSpan.Start(),
+			End:   eventSpan.End(),
+		},
+	}
+	eventChips := renderableCausalEventChips(eventSpan, eventView, converted.namer)
+	if got, want := len(eventChips), 1; got != want {
+		t.Fatalf("renderableCausalEventChips() bins = %d, want %d", got, want)
+	}
+	if got, want := len(eventChips[0].CausalityEntryIDs), len(events); got != want {
+		t.Fatalf("event bin causality IDs = %d, want %d", got, want)
+	}
+
+	suspendSpan := converted.SpanByID("s0.0.0/0/3")
+	suspendDomain := rendertrace.TimeRange{
+		Start: 50 * time.Millisecond,
+		End:   60 * time.Millisecond,
+	}
+	suspendView := rendertrace.RenderView{
+		Request:        rendertrace.RenderRequest{TraceViewRangePx: 1},
+		TemporalDomain: suspendDomain,
+	}
+	renderedSuspends := renderableSuspendIntervals(suspendSpan, suspendView)
+	if got, want := len(renderedSuspends), 1; got != want {
+		t.Fatalf("renderableSuspendIntervals() = %d, want %d", got, want)
+	}
+	wantSuspendID := suspendCausalityEntryID("s0.0.0/0/3", suspendDomain)
+	if got := renderedSuspends[0].CausalityEntryIDs; !reflect.DeepEqual(got, []string{wantSuspendID}) {
+		t.Fatalf("suspend bin causality IDs = %v, want [%q]", got, wantSuspendID)
+	}
+}
+
 func TestConvertTraceyTrace1FixtureBuildsServiceSpawnHierarchy(t *testing.T) {
 	response, err := LoadRawResponseFile(filepath.Join("..", "testdata", "tracey-trace1-ct-logs.json"))
 	if err != nil {

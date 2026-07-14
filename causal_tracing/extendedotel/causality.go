@@ -12,6 +12,13 @@ import (
 type SpanCausalityEntryKind string
 
 const (
+	// CausalityEntryIDProperty is the TraceViz property containing the stable
+	// identifier for a single focused-span causality table row.
+	CausalityEntryIDProperty = "causality_entry_id"
+	// CausalityEntryIDsProperty is the TraceViz property containing every
+	// focused-span causality entry represented by a rendered feature.
+	CausalityEntryIDsProperty = "causality_entry_ids"
+
 	// SpanCausalityEventEntry records an instantaneous Tracey dependency
 	// endpoint or mark.
 	SpanCausalityEventEntry SpanCausalityEntryKind = "event"
@@ -22,6 +29,9 @@ const (
 
 // SpanCausalityEntry describes one internal causality item in a focused span.
 type SpanCausalityEntry struct {
+	// ID correlates this unfiltered entry with any downsampled rendered feature
+	// that represents it.
+	ID             string
 	Kind           SpanCausalityEntryKind
 	Type           string
 	Time           time.Duration
@@ -45,6 +55,7 @@ func (t *Trace) SpanCausalityEntries(spanID string) ([]SpanCausalityEntry, error
 		End:   span.End(),
 	}) {
 		ret = append(ret, SpanCausalityEntry{
+			ID:       suspendCausalityEntryID(spanID, suspend),
 			Kind:     SpanCausalitySuspendEntry,
 			Type:     "suspend",
 			Time:     suspend.Start,
@@ -53,6 +64,7 @@ func (t *Trace) SpanCausalityEntries(spanID string) ([]SpanCausalityEntry, error
 	}
 	for _, event := range spanCausalEvents(span, t.namer) {
 		ret = append(ret, SpanCausalityEntry{
+			ID:             eventCausalityEntryID(spanID, event),
 			Kind:           SpanCausalityEventEntry,
 			Type:           string(event.kind),
 			Time:           event.moment,
@@ -70,6 +82,14 @@ func (t *Trace) SpanCausalityEntries(spanID string) ([]SpanCausalityEntry, error
 		return spanCausalityKindPriority(ret[i].Kind) < spanCausalityKindPriority(ret[j].Kind)
 	})
 	return ret, nil
+}
+
+func eventCausalityEntryID(spanID string, event renderedCausalEvent) string {
+	return fmt.Sprintf("%s:event:%d:%d", spanID, event.moment, event.sequence)
+}
+
+func suspendCausalityEntryID(spanID string, suspend rendertrace.TimeRange) string {
+	return fmt.Sprintf("%s:suspend:%d:%d", spanID, suspend.Start, suspend.End)
 }
 
 func spanCausalityKindPriority(kind SpanCausalityEntryKind) int {

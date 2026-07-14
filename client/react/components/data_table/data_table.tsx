@@ -482,8 +482,8 @@ export function DataTable({
             key={idx}
             ref={idx === 0 ? sampleRowRef : undefined}
             style={{ height: rowHeightPx, ...rowStyle(row) }}
-            onMouseOver={() => rowMouseover(row)}
-            onMouseOut={() => rowMouseout(row)}
+            onMouseEnter={() => rowMouseover(row)}
+            onMouseLeave={() => rowMouseout(row)}
             onClick={(ev) => rowClick(row, ev.shiftKey)}
           >
             {row.cells(columns).map((cell, cellIdx) => (

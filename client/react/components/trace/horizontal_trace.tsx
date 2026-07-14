@@ -1,11 +1,7 @@
-import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { ReactNode, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
-  AxisType,
   ConfigurationError,
   Coloring,
-  DoubleValue,
-  Duration,
-  DurationValue,
   Interactions,
   RenderedCategory,
   RenderedTraceEdge,
@@ -13,8 +9,6 @@ import {
   RenderedCategoryHierarchy,
   Severity,
   StringValue,
-  Timestamp,
-  TimestampValue,
   Trace,
   Value,
   ValueMap,
@@ -23,10 +17,9 @@ import {
   renderHorizontalTraceSpans,
 } from "@traceviz/client-core";
 import * as d3 from "d3";
-import { Subject } from "rxjs";
+import { distinctUntilChanged, Subject, takeUntil } from "rxjs";
 import {
   ContinuousAxisRenderSettings,
-  domainFromAxis,
   xAxisRenderSettings,
 } from "../axes/continuous_axis_x.tsx";
 import { useAppCore } from "../../core/index.ts";
@@ -42,21 +35,18 @@ const DETAIL_FORMAT_KEY = "detail_format";
 const TOOLTIP_KEY = "tooltip";
 const CALLED_OUT_CATEGORY_BAND_COLOR = "#aaa";
 const CALLED_OUT_CATEGORY_BAND_OPACITY = 0.35;
-const MIN_BRUSH_WIDTH_PX = 2;
 export const TRACE_SPANS_TARGET = "trace_spans";
+export const TRACE_EDGES_TARGET = "trace_edges";
 export const TRACE_SPAN_CLICK_ACTION = "click";
-export const TRACE_CHART_TARGET = "chart";
-export const TRACE_BRUSH_ACTION = "brush";
-export const TRACE_RESET_ZOOM_ACTION = "reset_zoom";
-export const TRACE_ZOOM_START_KEY = "zoom_start";
-export const TRACE_ZOOM_END_KEY = "zoom_end";
+export const TRACE_HIGHLIGHT_REACTION = "highlight";
 
 const supportedActions: Array<[string, string]> = [
   [TRACE_SPANS_TARGET, TRACE_SPAN_CLICK_ACTION],
-  [TRACE_CHART_TARGET, TRACE_BRUSH_ACTION],
-  [TRACE_CHART_TARGET, TRACE_RESET_ZOOM_ACTION],
 ];
-const supportedReactions: Array<[string, string]> = [];
+const supportedReactions: Array<[string, string]> = [
+  [TRACE_SPANS_TARGET, TRACE_HIGHLIGHT_REACTION],
+  [TRACE_EDGES_TARGET, TRACE_HIGHLIGHT_REACTION],
+];
 const supportedWatches = [UPDATE_CALLED_OUT_CATEGORY_WATCH];
 
 type CalledOutCategoryState = {
@@ -112,23 +102,6 @@ function stringLikeValue(value: unknown): string | null {
   return null;
 }
 
-function axisOffsetValue(trace: Trace<unknown>, offset: number): Value {
-  switch (trace.axis.type) {
-    case AxisType.DURATION:
-      return new DurationValue(new Duration(offset));
-    case AxisType.DOUBLE:
-      return new DoubleValue(offset);
-    case AxisType.TIMESTAMP:
-      return new TimestampValue(
-        (trace.axis.min as Timestamp).add(new Duration(offset)),
-      );
-    default:
-      throw new ConfigurationError("unsupported trace x-axis type")
-        .from(SOURCE)
-        .at(Severity.ERROR);
-  }
-}
-
 export type HorizontalTraceYAxisSlotProps<T> = {
   trace: Trace<T>;
   renderedCategories: RenderedCategoryHierarchy;
@@ -176,6 +149,10 @@ export function HorizontalTrace<T>(
     useState<CalledOutCategoryState | null>(null);
   const [calledOutCategoryIDKey, setCalledOutCategoryIDKey] =
     useState<string | null>(null);
+  const [highlightRevision, redrawHighlights] = useReducer(
+    (revision: number) => revision + 1,
+    0,
+  );
 
   const renderedCategories: RenderedCategoryHierarchy | null = useMemo(() => {
     try {
@@ -274,6 +251,39 @@ export function HorizontalTrace<T>(
     };
   }, [appCore, interactions]);
 
+  // Applies generic TraceViz highlight reactions to rendered spans, subspans,
+  // and edges. Predicates observe only each feature's properties and Values
+  // owned by the embedding tool; this component does not interpret semantics.
+  useEffect(() => {
+    if (!interactions || renderedTrace === null) {
+      return;
+    }
+    const unsubscribe = new Subject<void>();
+    const subscribe = (
+      target: string,
+      renderedItem: RenderedTraceSpan | RenderedTraceEdge,
+    ): void => {
+      interactions
+        .match(target, TRACE_HIGHLIGHT_REACTION)(renderedItem.properties)
+        .pipe(distinctUntilChanged(), takeUntil(unsubscribe))
+        .subscribe({
+          next: (highlighted: boolean) => {
+            if (renderedItem.highlighted !== highlighted) {
+              renderedItem.highlighted = highlighted;
+              redrawHighlights();
+            }
+          },
+          error: (err: unknown) => appCore.err(err),
+        });
+    };
+    renderedTrace.spans.forEach((span) => subscribe(TRACE_SPANS_TARGET, span));
+    renderedTrace.edges.forEach((edge) => subscribe(TRACE_EDGES_TARGET, edge));
+    return () => {
+      unsubscribe.next();
+      unsubscribe.complete();
+    };
+  }, [appCore, interactions, renderedTrace]);
+
   useEffect(() => {
     if (
       !svgRef.current ||
@@ -294,15 +304,32 @@ export function HorizontalTrace<T>(
       highlighted: boolean,
     ) =>
       highlighted
-        ? coloring.colors(properties).secondary || ""
+        ? coloring.colors(properties).secondary ||
+          coloring.colors(properties).primary ||
+          ""
         : coloring.colors(properties).primary || "";
     const strokeOrSecondary = (
       properties: RenderedTraceSpan["properties"],
       highlighted: boolean,
     ) =>
       highlighted
-        ? coloring.colors(properties).secondary || ""
+        ? coloring.colors(properties).secondary ||
+          coloring.colors(properties).stroke ||
+          ""
         : coloring.colors(properties).stroke || "";
+    const highlightGlow = (
+      properties: RenderedTraceSpan["properties"],
+      highlighted: boolean,
+    ): string | null => {
+      if (!highlighted) {
+        return null;
+      }
+      const colors = coloring.colors(properties);
+      const glowColor = colors.secondary || colors.primary || colors.stroke;
+      return glowColor
+        ? `drop-shadow(0 0 3px ${glowColor}) drop-shadow(0 0 1px ${glowColor})`
+        : null;
+    };
 
     svg
       .select<SVGGElement>(".spans")
@@ -313,147 +340,6 @@ export function HorizontalTrace<T>(
       .attr("width", traceAreaWidthPx)
       .attr("height", heightPx)
       .style("pointer-events", "none");
-    const brushLayer = svg.select<SVGGElement>(".brush");
-    brushLayer
-      .attr("width", traceAreaWidthPx)
-      .attr("height", heightPx)
-      .style("pointer-events", "none")
-      .raise();
-    const brushSelection = brushLayer
-      .selectAll<SVGRectElement, null>("rect.brush-selection")
-      .data([null]);
-    brushSelection.exit().remove();
-    brushSelection
-      .enter()
-      .append("rect")
-      .attr("class", "brush-selection")
-      .merge(brushSelection)
-      .attr("y", 0)
-      .attr("height", heightPx)
-      .attr("fill", "rgba(55, 48, 163, 0.18)")
-      .attr("stroke", "rgba(55, 48, 163, 0.72)")
-      .attr("visibility", "hidden")
-      .attr("pointer-events", "none");
-
-    const svgNode = svgRef.current;
-    let brushStartPx: number | null = null;
-    let activePointerID: number | null = null;
-    let suppressNextClick = false;
-    const pointerX = (event: PointerEvent): number => {
-      const rect = svgNode.getBoundingClientRect();
-      return Math.max(0, Math.min(traceAreaWidthPx, event.clientX - rect.left));
-    };
-    const setBrushSelection = (leftPx: number, rightPx: number): void => {
-      brushLayer
-        .select<SVGRectElement>("rect.brush-selection")
-        .attr("x", Math.min(leftPx, rightPx))
-        .attr("width", Math.abs(rightPx - leftPx))
-        .attr("visibility", "visible");
-    };
-    const clearBrushSelection = (): void => {
-      brushLayer
-        .select<SVGRectElement>("rect.brush-selection")
-        .attr("visibility", "hidden")
-        .attr("width", 0);
-    };
-    const commitBrushSelection = (leftPx: number, rightPx: number): void => {
-      if (!interactions || Math.abs(rightPx - leftPx) < MIN_BRUSH_WIDTH_PX) {
-        return;
-      }
-      const [domainStart, domainEnd] = domainFromAxis(trace.axis);
-      const scale = d3
-        .scaleLinear()
-        .domain([0, traceAreaWidthPx])
-        .range([domainStart, domainEnd]);
-      interactions.update(
-        TRACE_CHART_TARGET,
-        TRACE_BRUSH_ACTION,
-        new ValueMap(
-          new Map([
-            [TRACE_ZOOM_START_KEY, axisOffsetValue(trace, scale(leftPx))],
-            [TRACE_ZOOM_END_KEY, axisOffsetValue(trace, scale(rightPx))],
-          ]),
-        ),
-      );
-    };
-    const pointerDownListener = (event: PointerEvent): void => {
-      if (!interactions || event.button !== 0) {
-        return;
-      }
-      brushStartPx = pointerX(event);
-      activePointerID = event.pointerId;
-      try {
-        svgNode.setPointerCapture(event.pointerId);
-      } catch {
-        // Some SVG hosts may not support pointer capture; window-level pointer
-        // movement still works for ordinary in-bounds brushes.
-      }
-    };
-    const pointerMoveListener = (event: PointerEvent): void => {
-      if (brushStartPx === null || activePointerID !== event.pointerId) {
-        return;
-      }
-      const currentPx = pointerX(event);
-      if (Math.abs(currentPx - brushStartPx) >= MIN_BRUSH_WIDTH_PX) {
-        suppressNextClick = true;
-        setBrushSelection(brushStartPx, currentPx);
-        event.preventDefault();
-        event.stopPropagation();
-      }
-    };
-    const pointerUpListener = (event: PointerEvent): void => {
-      if (brushStartPx === null || activePointerID !== event.pointerId) {
-        return;
-      }
-      const startPx = brushStartPx;
-      const endPx = pointerX(event);
-      brushStartPx = null;
-      activePointerID = null;
-      clearBrushSelection();
-      try {
-        svgNode.releasePointerCapture(event.pointerId);
-      } catch {
-        // Ignore unsupported or already-released pointer capture.
-      }
-      if (Math.abs(endPx - startPx) >= MIN_BRUSH_WIDTH_PX) {
-        try {
-          commitBrushSelection(startPx, endPx);
-        } catch (err: unknown) {
-          appCore.err(
-            err instanceof Error ? err : new ConfigurationError(String(err)),
-          );
-        }
-        event.preventDefault();
-        event.stopPropagation();
-      }
-    };
-    const clickListener = (event: MouseEvent): void => {
-      if (!suppressNextClick) {
-        return;
-      }
-      suppressNextClick = false;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-    };
-    svgNode.addEventListener("pointerdown", pointerDownListener, true);
-    svgNode.addEventListener("pointermove", pointerMoveListener, true);
-    svgNode.addEventListener("pointerup", pointerUpListener, true);
-    svgNode.addEventListener("pointercancel", pointerUpListener, true);
-    svgNode.addEventListener("click", clickListener, true);
-    svg.on("dblclick", (event: MouseEvent) => {
-      if (!interactions) {
-        return;
-      }
-      try {
-        interactions.update(TRACE_CHART_TARGET, TRACE_RESET_ZOOM_ACTION);
-      } catch (err: unknown) {
-        appCore.err(
-          err instanceof Error ? err : new ConfigurationError(String(err)),
-        );
-      }
-      event.stopPropagation();
-    });
-
     const categoryBand = calledOutCategory(
       renderedCategories,
       calledOutCategoryID?.value ?? null,
@@ -490,13 +376,15 @@ export function HorizontalTrace<T>(
       .attr("x", (rs) => rs.x0Px)
       .attr("y", (rs) => rs.y0Px)
       .attr("width", (rs) => (rs.width === 0 ? 1 : rs.width))
-      .attr("height", (rs) => rs.height);
+      .attr("height", (rs) => rs.height)
+      .style("overflow", "visible");
 
     mergedSpans
       .select("rect")
       .attr("width", (rs) => (rs.width === 0 ? 1 : rs.width))
       .attr("height", (rs) => rs.height)
-      .attr("fill", (rs) => primaryOrSecondary(rs.properties, rs.highlighted));
+      .attr("fill", (rs) => primaryOrSecondary(rs.properties, rs.highlighted))
+      .style("filter", (rs) => highlightGlow(rs.properties, rs.highlighted));
 
     mergedSpans
       .select("text")
@@ -554,7 +442,8 @@ export function HorizontalTrace<T>(
       .attr("y1", (re) => re.y0Px)
       .attr("x2", (re) => re.x1Px)
       .attr("y2", (re) => re.y1Px)
-      .attr("stroke", (re) => strokeOrSecondary(re.properties, re.highlighted));
+      .attr("stroke", (re) => strokeOrSecondary(re.properties, re.highlighted))
+      .style("filter", (re) => highlightGlow(re.properties, re.highlighted));
 
     if (transitionDurationMs > 0) {
       mergedEdges
@@ -568,13 +457,6 @@ export function HorizontalTrace<T>(
           strokeOrSecondary(re.properties, re.highlighted),
         );
     }
-    return () => {
-      svgNode.removeEventListener("pointerdown", pointerDownListener, true);
-      svgNode.removeEventListener("pointermove", pointerMoveListener, true);
-      svgNode.removeEventListener("pointerup", pointerUpListener, true);
-      svgNode.removeEventListener("pointercancel", pointerUpListener, true);
-      svgNode.removeEventListener("click", clickListener, true);
-    };
   }, [
     renderedCategories.heightPx,
     calledOutCategoryID,
@@ -585,6 +467,7 @@ export function HorizontalTrace<T>(
     transitionDurationMs,
     interactions,
     appCore,
+    highlightRevision,
   ]);
 
   if (renderedCategories === null) {
@@ -617,7 +500,6 @@ export function HorizontalTrace<T>(
             <g className="called-out-category-band" />
             <g className="spans" />
             <g className="edges" />
-            <g className="brush" />
           </svg>
         ) : null}
       </div>

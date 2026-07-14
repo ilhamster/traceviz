@@ -4,9 +4,12 @@ import { MantineProvider } from "@mantine/core";
 import {
   Action,
   AppCore,
+  Clear,
+  Equals,
   GlobalRef,
   Interactions,
   LocalValue,
+  Reaction,
   Set,
   StringValue,
   node,
@@ -93,7 +96,10 @@ const tableData: ResponseNode = node(
     ),
   ),
   node(
-    valueMap({ key: "flavor", val: str("chocolate") }),
+    valueMap(
+      { key: "flavor", val: str("chocolate") },
+      { key: "secondary_color", val: str("rgba(148, 163, 184, 0.30)") },
+    ),
     node(
       valueMap(
         { key: "category_ids", val: strs("name") },
@@ -162,16 +168,42 @@ describe("DataTable", () => {
     appCore.publish();
 
     const selectedFlavor = new StringValue("");
+    const hoveredFlavor = new StringValue("");
     appCore.globalState.set("selected_flavor", selectedFlavor);
+    appCore.globalState.set("hovered_flavor", hoveredFlavor);
 
-    const interactions = new Interactions().withAction(
-      new Action("rows", "click", [
-        new Set(
-          new GlobalRef(appCore, "selected_flavor"),
-          new LocalValue("flavor"),
+    const interactions = new Interactions()
+      .withAction(
+        new Action("rows", "click", [
+          new Set(
+            new GlobalRef(appCore, "selected_flavor"),
+            new LocalValue("flavor"),
+          ),
+        ]),
+      )
+      .withAction(
+        new Action("rows", "mouseover", [
+          new Set(
+            new GlobalRef(appCore, "hovered_flavor"),
+            new LocalValue("flavor"),
+          ),
+        ]),
+      )
+      .withAction(
+        new Action("rows", "mouseout", [
+          new Clear([new GlobalRef(appCore, "hovered_flavor")]),
+        ]),
+      )
+      .withReaction(
+        new Reaction(
+          "rows",
+          "highlight",
+          new Equals(
+            new LocalValue("flavor"),
+            new GlobalRef(appCore, "hovered_flavor"),
+          ),
         ),
-      ]),
-    );
+      );
 
     const { container } = render(
       <MantineProvider>
@@ -186,7 +218,9 @@ describe("DataTable", () => {
     );
     expect(headerCells).toEqual(["Name", "Color", "Flavor", "Label"]);
 
-    const bodyRows = Array.from(container.querySelectorAll("tbody tr"));
+    const bodyRows = Array.from(
+      container.querySelectorAll<HTMLTableRowElement>("tbody tr"),
+    );
     expect(bodyRows.length).toBe(3);
 
     const bodyValues = bodyRows.map((row) =>
@@ -204,6 +238,15 @@ describe("DataTable", () => {
     expect(selectedFlavor.val).toBe("vanilla");
     fireEvent.click(bodyRows[2]);
     expect(selectedFlavor.val).toBe("strawberry");
+
+    fireEvent.mouseEnter(bodyRows[1]);
+    expect(hoveredFlavor.val).toBe("chocolate");
+    expect(bodyRows[1].style.backgroundColor).toBe(
+      "rgba(148, 163, 184, 0.3)",
+    );
+    fireEvent.mouseLeave(bodyRows[1]);
+    expect(hoveredFlavor.val).toBe("");
+    expect(bodyRows[1].style.backgroundColor).toBe("");
 
     expect(errors).toEqual([]);
     errSub.unsubscribe();

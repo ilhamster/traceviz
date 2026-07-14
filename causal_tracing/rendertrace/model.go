@@ -31,6 +31,28 @@ type CategoryID string
 // SpanID is a stable identifier for a Tracey span.
 type SpanID string
 
+// MinimapHighlightColorProperty names an optional TraceViz span property whose
+// color must survive overview decimation. TraceMinimap paints these spans after
+// ordinary occupancy so even a subpixel match remains visible.
+const MinimapHighlightColorProperty = "trace_minimap_highlight_color"
+
+// MinimapMatchKindProperty identifies how a minimap search marker relates to
+// the span carrying it. Direct matches are ordinary temporal highlights;
+// requires-expansion markers identify hidden matches projected onto their
+// deepest visible ancestor.
+const MinimapMatchKindProperty = "trace_minimap_match_kind"
+
+// MinimapMatchKind describes how a search match is represented in an overview.
+type MinimapMatchKind string
+
+const (
+	// MinimapMatchDirect marks a visible entity that directly matched search.
+	MinimapMatchDirect MinimapMatchKind = "direct"
+	// MinimapMatchRequiresExpansion marks a hidden match whose visible carrier
+	// must be expanded to reveal the matching entity.
+	MinimapMatchRequiresExpansion MinimapMatchKind = "requires_expansion"
+)
+
 // RenderNamer names and formats non-generic rendered trace elements.
 type RenderNamer interface {
 	// MomentString returns a human-facing representation of a render-time
@@ -68,6 +90,49 @@ const (
 	// ThemeDark renders colors for a dark frontend shell.
 	ThemeDark Theme = "dark"
 )
+
+// RenderFeatures controls optional detail emitted into a TraceViz trace.
+//
+// The category and span traversal is intentionally unaffected by these flags.
+// Reduced-detail consumers such as overview minimaps can therefore reuse the
+// same semantic view construction without paying to serialize details they do
+// not display.
+type RenderFeatures struct {
+	// Labels includes human-facing category and span labels.
+	Labels bool
+	// Tooltips includes hover detail properties.
+	Tooltips bool
+	// SuspendIntervals includes suspend subspans.
+	SuspendIntervals bool
+	// CausalEvents includes instantaneous causal-event subspans.
+	CausalEvents bool
+	// TraceEdges includes critical-path and focused-dependency trace edges.
+	TraceEdges bool
+	// PreserveSubpixelHighlights emits backend-selected highlight hints that an
+	// overview renderer must retain even when their duration is subpixel.
+	PreserveSubpixelHighlights bool
+}
+
+// FullRenderFeatures returns the normal detailed-trace feature set.
+func FullRenderFeatures() RenderFeatures {
+	return RenderFeatures{
+		Labels:           true,
+		Tooltips:         true,
+		SuspendIntervals: true,
+		CausalEvents:     true,
+		TraceEdges:       true,
+	}
+}
+
+// MinimapRenderFeatures returns the reduced feature set used by trace
+// overviews. Suspends remain useful at overview scale; labels, tooltips,
+// instantaneous events, and graph edges do not.
+func MinimapRenderFeatures() RenderFeatures {
+	return RenderFeatures{
+		SuspendIntervals:           true,
+		PreserveSubpixelHighlights: true,
+	}
+}
 
 // RenderRequest contains all semantic view state needed to render a trace.
 //
@@ -124,6 +189,11 @@ type RenderRequest struct {
 	// TemporalDomain is the visible time interval mapped onto the horizontal
 	// trace view. Nil means the trace's full time range.
 	TemporalDomain *TimeRange
+	// VisibilityTemporalDomain is the interval used only by policies whose
+	// semantics depend on the current viewport, such as HideEmptyCategories.
+	// Nil means to use the resolved TemporalDomain. Overview renders can map the
+	// full trace onto their axis while still hiding rows empty in a detail view.
+	VisibilityTemporalDomain *TimeRange
 	// TraceViewRangePx is the horizontal pixel width available for rendering
 	// TemporalDomain. Non-positive values mean no pixel budget is known.
 	TraceViewRangePx int
@@ -131,6 +201,17 @@ type RenderRequest struct {
 	// features such as event chips, suspend intervals, and heatmap buckets.
 	// Non-positive values let the trace adapter choose its default.
 	MinimumFeatureWidthPx float64
+	// Features controls optional serialized detail. Nil selects
+	// FullRenderFeatures for compatibility with ordinary trace views.
+	Features *RenderFeatures
+}
+
+// ResolvedFeatures returns the request's effective output feature set.
+func (rr RenderRequest) ResolvedFeatures() RenderFeatures {
+	if rr.Features == nil {
+		return FullRenderFeatures()
+	}
+	return *rr.Features
 }
 
 // RenderView contains request-derived state shared by category and span views
@@ -142,6 +223,9 @@ type RenderView struct {
 	// It equals Request.TemporalDomain when provided, otherwise the trace's
 	// full renderable time range.
 	TemporalDomain TimeRange
+	// VisibilityTemporalDomain is the resolved interval used by
+	// viewport-dependent visibility policies.
+	VisibilityTemporalDomain TimeRange
 	// TemporalAxis is the TraceViz axis used for this render. Span renderers
 	// may use it when emitting time-positioned payloads such as trace-edge
 	// nodes.
@@ -216,6 +300,29 @@ type SearchResult struct {
 	// descendant span. Renderers can use this to retain required span ancestry
 	// without recursively searching the span tree at render time.
 	SpansWithDescendantMatch map[SpanID]struct{}
+	// CategoryDescendantMatchRanges records the temporal ranges of matches below
+	// each category. Search implementations populate this while walking match
+	// ancestry so collapsed-category renderers can project hidden matches without
+	// traversing their subtrees again.
+	CategoryDescendantMatchRanges map[CategoryID][]TimeRange
+}
+
+// MinimapMatchProjection describes a search mark carried by a rendered span.
+//
+// Color remains adapter-selected because trace palettes are backend styling.
+// The common renderer serializes the projection, and TraceMinimap determines
+// the screen-space shape associated with Kind.
+type MinimapMatchProjection struct {
+	TemporalRange TimeRange
+	Kind          MinimapMatchKind
+	Color         string
+}
+
+// MinimapMatchProjectionProvider is optionally implemented by SpanViews that
+// carry minimap search marks. Synthetic collapsed-category spans use it to
+// project otherwise-hidden descendant matches onto the visible summary row.
+type MinimapMatchProjectionProvider interface {
+	MinimapMatchProjections(view RenderView) []MinimapMatchProjection
 }
 
 // TraceVizCategoryParent is implemented by TraceViz trace and category
@@ -524,6 +631,10 @@ func renderTypedTrace[T any, CP, SP, DP fmt.Stringer](
 	if timeRange.End < timeRange.Start {
 		return fmt.Errorf("trace temporal domain ends before it starts")
 	}
+	visibilityTimeRange := timeRange
+	if req.VisibilityTemporalDomain != nil {
+		visibilityTimeRange = clampTemporalDomain(*req.VisibilityTemporalDomain, fullTimeRange)
+	}
 	searchResult, err := adapter.Search(ctx, req.HierarchyType, req.Search, timeRange)
 	if err != nil {
 		return err
@@ -534,13 +645,15 @@ func renderTypedTrace[T any, CP, SP, DP fmt.Stringer](
 		timeRange.End,
 	)
 	view := RenderView{
-		Request:        req,
-		TemporalDomain: timeRange,
-		TemporalAxis:   axis,
-		SearchResult:   searchResult,
+		Request:                  req,
+		TemporalDomain:           timeRange,
+		VisibilityTemporalDomain: visibilityTimeRange,
+		TemporalAxis:             axis,
+		SearchResult:             searchResult,
 	}
 	_, wantsOverlay := any(adapter).(CriticalPathOverlayAdapter[T, CP, SP, DP])
-	if len(req.FocusSpanIDs) == 0 && (wantsOverlay || req.ShowOnlyCriticalPath) {
+	features := req.ResolvedFeatures()
+	if len(req.FocusSpanIDs) == 0 && ((features.TraceEdges && wantsOverlay) || req.ShowOnlyCriticalPath) {
 		path, err := findCriticalPath(ctx, adapter.Trace(), req)
 		if err != nil {
 			if ctx.Err() != nil || req.ShowOnlyCriticalPath {
@@ -559,7 +672,7 @@ func renderTypedTrace[T any, CP, SP, DP fmt.Stringer](
 				view.CriticalPathVisibility = visibility
 			}
 			overlayAdapter, ok := any(adapter).(CriticalPathOverlayAdapter[T, CP, SP, DP])
-			if ok {
+			if features.TraceEdges && ok {
 				overlay, err := overlayAdapter.CriticalPathOverlay(ctx, view, path)
 				if err != nil && ctx.Err() != nil {
 					return err
@@ -570,7 +683,7 @@ func renderTypedTrace[T any, CP, SP, DP fmt.Stringer](
 			}
 		}
 	}
-	if len(req.FocusSpanIDs) > 0 {
+	if features.TraceEdges && len(req.FocusSpanIDs) > 0 {
 		focusOverlayAdapter, ok := any(adapter).(FocusDependencyOverlayAdapter[T, CP, SP, DP])
 		if ok {
 			overlay, err := focusOverlayAdapter.FocusDependencyOverlay(ctx, view)
@@ -636,9 +749,10 @@ func renderTypedCriticalPathTrace[T any, CP, SP, DP fmt.Stringer](
 		timeRange.End,
 	)
 	view := RenderView{
-		Request:        req,
-		TemporalDomain: timeRange,
-		TemporalAxis:   axis,
+		Request:                  req,
+		TemporalDomain:           timeRange,
+		VisibilityTemporalDomain: timeRange,
+		TemporalAxis:             axis,
 	}
 	renderSettings := defaultTraceVizRenderSettings(req.TraceViewRangePx)
 	if settingsProvider, ok := any(adapter).(TraceVizRenderSettings); ok {
@@ -772,6 +886,22 @@ func renderSpanView(
 	renderedSpan, err := spanView.RenderTraceVizSpan(ctx, view, parent)
 	if err != nil {
 		return err
+	}
+	if view.Request.ResolvedFeatures().PreserveSubpixelHighlights {
+		if projectionProvider, ok := spanView.(MinimapMatchProjectionProvider); ok {
+			for _, projection := range projectionProvider.MinimapMatchProjections(view) {
+				if projection.TemporalRange.End < projection.TemporalRange.Start || projection.Color == "" {
+					continue
+				}
+				renderedSpan.Subspan(
+					projection.TemporalRange.Start,
+					projection.TemporalRange.End,
+					util.StringProperty("subspan_kind", "minimap_match"),
+					util.StringProperty(MinimapHighlightColorProperty, projection.Color),
+					util.StringProperty(MinimapMatchKindProperty, string(projection.Kind)),
+				)
+			}
+		}
 	}
 	childSpans, err := spanView.ChildSpans(ctx, view)
 	if err != nil {

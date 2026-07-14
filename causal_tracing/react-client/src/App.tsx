@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useState, type RefCallback } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefCallback,
+} from 'react';
 import {
 	Action,
 	AppCore,
@@ -11,6 +18,7 @@ import {
 	DurationValue,
 	Equals,
 	HttpDataFetcher,
+	Includes,
 	IntegerValue,
 	Interactions,
 	LocalValue,
@@ -49,9 +57,12 @@ import {
   KeypressListener,
   RectangularCategoryHierarchyYAxis,
   StandardContinuousXAxis,
-  TRACE_BRUSH_ACTION,
-  TRACE_CHART_TARGET,
-  TRACE_RESET_ZOOM_ACTION,
+  TraceMinimap,
+  TRACE_MINIMAP_RESET_DOMAIN_ACTION,
+  TRACE_MINIMAP_SET_DOMAIN_ACTION,
+  TRACE_MINIMAP_TARGET,
+  TRACE_MINIMAP_VIEWPORT_WATCH,
+  TRACE_HIGHLIGHT_REACTION,
   TRACE_SPAN_CLICK_ACTION,
   TRACE_SPANS_TARGET,
   TRACE_ZOOM_END_KEY,
@@ -71,6 +82,7 @@ const CRITICAL_PATH_STRATEGIES_QUERY =
   'causal_tracing.critical_path_strategies';
 const TRACE_DIAGNOSTICS_QUERY = 'causal_tracing.trace_diagnostics';
 const TRACE_QUERY = 'causal_tracing.trace';
+const TRACE_MINIMAP_QUERY = 'causal_tracing.trace_minimap';
 const CRITICAL_PATH_TRACE_QUERY = 'causal_tracing.critical_path_trace';
 const SPAN_CAUSALITY_QUERY = 'causal_tracing.span_causality';
 const VALIDATE_SEARCH_QUERY = 'causal_tracing.validate_search';
@@ -83,6 +95,8 @@ const EXPANDED_CATEGORY_IDS_KEY = 'expanded_category_ids';
 const FOCUS_SPAN_IDS_KEY = 'focus_span_ids';
 const SPAN_ID_KEY = 'span_id';
 const OTHER_SPAN_ID_KEY = 'other_span_id';
+const CAUSALITY_ENTRY_ID_KEY = 'causality_entry_id';
+const CAUSALITY_ENTRY_IDS_KEY = 'causality_entry_ids';
 const TRACE_VIEW_WIDTH_PX_PARAM = 'trace_view_width_px';
 const TRACE_ID_KEY = 'trace_id';
 const HIERARCHY_TYPE_KEY = 'hierarchy_type';
@@ -160,6 +174,7 @@ type CausalTracingState = {
   criticalPathValidationRequest: IntegerValue;
   traceViewWidthPx: IntegerValue;
   calledOutCategoryID: StringValue;
+  hoveredCausalityEntryID: StringValue;
 };
 
 type CriticalPathStrategyOption = {
@@ -236,7 +251,10 @@ class PushNonEmptyLocalStringLeft extends Update {
   }
 
   override update(localState?: ValueMap): void {
-    const source = localState?.get(this.sourceKey);
+    if (localState === undefined || !localState.has(this.sourceKey)) {
+      return;
+    }
+    const source = localState.get(this.sourceKey);
     if (!(source instanceof StringValue) || source.val === '') {
       return;
     }
@@ -494,7 +512,7 @@ class SetTemporalDomainFromLocal extends Update {
   }
 
   override get autoDocument(): string {
-    return 'sets the committed temporal domain from a brushed trace range';
+    return 'sets the committed temporal domain from minimap navigation';
   }
 }
 
@@ -603,6 +621,7 @@ function createCausalTracingState(): CausalTracingState {
   const criticalPathValidationRequest = new IntegerValue(0);
   const traceViewWidthPx = new IntegerValue(0);
   const calledOutCategoryID = new StringValue('');
+  const hoveredCausalityEntryID = new StringValue('');
   const core = new AppCore();
   core.globalState.set('corpus_path', corpusPath);
   core.globalState.set('trace_id', traceID);
@@ -690,6 +709,7 @@ function createCausalTracingState(): CausalTracingState {
     criticalPathValidationRequest,
     traceViewWidthPx,
     calledOutCategoryID,
+    hoveredCausalityEntryID,
   };
 }
 
@@ -762,6 +782,27 @@ function useMeasuredWidth(): [RefCallback<HTMLDivElement>, number] {
   return [ref, widthPx];
 }
 
+/**
+ * Keeps an untouched editor draft aligned with committed state restored from
+ * URL navigation while preserving a draft that the user is actively editing.
+ */
+function useCommittedValueDraftSync(
+  committedValue: string,
+  draftValue: string,
+  draft: StringValue,
+): void {
+  const previousCommittedValue = useRef(committedValue);
+  // Mirrors a new committed value only when the draft still matches the value
+  // it was derived from; a diverged draft represents active user input.
+  useEffect(() => {
+    const previousValue = previousCommittedValue.current;
+    previousCommittedValue.current = committedValue;
+    if (draftValue === previousValue && draftValue !== committedValue) {
+      draft.val = committedValue;
+    }
+  }, [committedValue, draft, draftValue]);
+}
+
 export default function App(): JSX.Element {
   // Creates the TraceViz AppCore, Values, and DataQuery exactly once for this app instance.
   const state = useMemo(() => createCausalTracingState(), []);
@@ -773,6 +814,14 @@ export default function App(): JSX.Element {
   const focusSpanIDs = useValue<string[]>(state.focusSpanIDs, []) ?? [];
   const focusSpanID = focusSpanIDs.length > 0 ? focusSpanIDs[0] : '';
   const focusSpanKey = focusSpanIDs.join('\x00');
+  const criticalPathStart = useValue(
+    state.criticalPathStart,
+    DEFAULT_CRITICAL_PATH_START,
+  ) ?? DEFAULT_CRITICAL_PATH_START;
+  const criticalPathEnd = useValue(
+    state.criticalPathEnd,
+    DEFAULT_CRITICAL_PATH_END,
+  ) ?? DEFAULT_CRITICAL_PATH_END;
   const criticalPathStrategy = useValue(
     state.criticalPathStrategy,
     DEFAULT_CRITICAL_PATH_STRATEGY,
@@ -809,19 +858,70 @@ export default function App(): JSX.Element {
   const [transformValidationError, setTransformValidationError] =
     useState<string>('');
   const [focusStackOpen, setFocusStackOpen] = useState<boolean>(false);
-  // Binds URL-hash state to the stable TraceViz Value objects that identify the
-  // selected corpus, trace, hierarchy, and theme.
+  useCommittedValueDraftSync(
+    committedSearch,
+    draftSearch,
+    state.draftSearch,
+  );
+  useCommittedValueDraftSync(
+    criticalPathStart,
+    draftCriticalPathStart,
+    state.draftCriticalPathStart,
+  );
+  useCommittedValueDraftSync(
+    criticalPathEnd,
+    draftCriticalPathEnd,
+    state.draftCriticalPathEnd,
+  );
+  useCommittedValueDraftSync(
+    criticalPathStrategy,
+    draftCriticalPathStrategy,
+    state.draftCriticalPathStrategy,
+  );
+  useCommittedValueDraftSync(
+    transformTemplate,
+    draftTransformTemplate,
+    state.draftTransformTemplate,
+  );
+  // Binds shareable selection settings to readable URL-hash fields and opaque
+  // trace-internal view state to the hash's single compressed state field.
   useEffect(() => {
     const urlHash = new UrlHash({
+      encoded: new ValueMap(
+        new Map<string, Value>([
+          [EXPANDED_CATEGORY_IDS_KEY, state.expandedCategoryIDs],
+          [FOCUS_SPAN_IDS_KEY, state.focusSpanIDs],
+          [TEMPORAL_DOMAIN_START_KEY, state.temporalDomainStart],
+          [TEMPORAL_DOMAIN_END_KEY, state.temporalDomainEnd],
+          [TRANSFORM_TEMPLATE_KEY, state.transformTemplate],
+          [EXPAND_MATCHES_KEY, state.expandMatches],
+          [HIDE_NON_MATCHING_KEY, state.hideNonMatching],
+          [HIDE_EMPTY_KEY, state.hideEmpty],
+          [SHOW_ONLY_CRITICAL_PATH_KEY, state.showOnlyCriticalPath],
+        ]),
+      ),
       unencoded: new ValueMap(
         new Map<string, Value>([
           ['corpus_path', state.corpusPath],
           [TRACE_ID_KEY, state.traceID],
           [HIERARCHY_TYPE_KEY, state.hierarchyType],
+          [SEARCH_KEY, state.search],
+          [CRITICAL_PATH_START_KEY, state.criticalPathStart],
+          [CRITICAL_PATH_END_KEY, state.criticalPathEnd],
+          [CRITICAL_PATH_STRATEGY_KEY, state.criticalPathStrategy],
           [THEME_KEY, state.theme],
         ]),
       ),
-      stateful: [TRACE_ID_KEY, HIERARCHY_TYPE_KEY, THEME_KEY],
+      stateful: [
+        TRACE_ID_KEY,
+        HIERARCHY_TYPE_KEY,
+        SEARCH_KEY,
+        CRITICAL_PATH_START_KEY,
+        CRITICAL_PATH_END_KEY,
+        CRITICAL_PATH_STRATEGY_KEY,
+        TRANSFORM_TEMPLATE_KEY,
+        THEME_KEY,
+      ],
       onError: (err: unknown) => {
         state.core.err(
           err instanceof ConfigurationError
@@ -839,9 +939,22 @@ export default function App(): JSX.Element {
   }, [
     state.core,
     state.corpusPath,
+    state.criticalPathEnd,
+    state.criticalPathStart,
+    state.criticalPathStrategy,
+    state.expandMatches,
+    state.expandedCategoryIDs,
+    state.focusSpanIDs,
+    state.hideEmpty,
+    state.hideNonMatching,
     state.hierarchyType,
+    state.search,
+    state.showOnlyCriticalPath,
+    state.temporalDomainEnd,
+    state.temporalDomainStart,
     state.theme,
     state.traceID,
+    state.transformTemplate,
   ]);
   const [tracePanelRef, measuredTraceWidthPx] = useMeasuredWidth();
   // Publishes measured trace panel width into TraceViz state so backend render
@@ -872,6 +985,17 @@ export default function App(): JSX.Element {
         ]),
       ),
     [focusSpanKey, state.traceViewWidthPx],
+  );
+  // Minimap parameters are independent of focus state; its overview remains a
+  // stable full-trace navigation surface while the detail view changes mode.
+  const minimapParams = useMemo(
+    () =>
+      new ValueMap(
+        new Map<string, Value>([
+          [TRACE_VIEW_WIDTH_PX_PARAM, state.traceViewWidthPx],
+        ]),
+      ),
+    [state.traceViewWidthPx],
   );
   const globalRef = (key: string): GlobalValueRef =>
     new GlobalValueRef(state.core, key);
@@ -916,6 +1040,35 @@ export default function App(): JSX.Element {
       ]),
     [state.core, state.traceViewWidthPx],
   );
+  // Refetches the full-domain minimap when structural or display policy changes.
+  // Temporal Values participate only when hide-empty makes row visibility
+  // viewport-dependent; otherwise zoom changes move only the local overlay.
+  const minimapRenderChanged = useMemo(() => {
+    const valueRefs: ValueRef[] = [
+      globalRef('corpus_path'),
+      globalRef('trace_id'),
+      globalRef(HIERARCHY_TYPE_KEY),
+      globalRef(EXPANDED_CATEGORY_IDS_KEY),
+      globalRef(CRITICAL_PATH_START_KEY),
+      globalRef(CRITICAL_PATH_END_KEY),
+      globalRef(CRITICAL_PATH_STRATEGY_KEY),
+      globalRef(SEARCH_KEY),
+      globalRef(TRANSFORM_TEMPLATE_KEY),
+      globalRef(EXPAND_MATCHES_KEY),
+      globalRef(HIDE_NON_MATCHING_KEY),
+      globalRef(HIDE_EMPTY_KEY),
+      globalRef(SHOW_ONLY_CRITICAL_PATH_KEY),
+      globalRef(THEME_KEY),
+      new DirectValueRef(state.traceViewWidthPx, 'trace view width'),
+    ];
+    if (hideEmpty) {
+      valueRefs.push(
+        globalRef(TEMPORAL_DOMAIN_START_KEY),
+        globalRef(TEMPORAL_DOMAIN_END_KEY),
+      );
+    }
+    return new Changed(valueRefs);
+  }, [hideEmpty, state.core, state.traceViewWidthPx]);
   // Refetches the span focus table when the focused stack or selected trace context changes.
   const spanFocusChanged = useMemo(
     () =>
@@ -1002,6 +1155,12 @@ export default function App(): JSX.Element {
     TRACE_QUERY,
     traceParams,
     traceRenderChanged,
+  );
+  const renderedMinimapResult = useDataSeries(
+    state.dataQuery,
+    TRACE_MINIMAP_QUERY,
+    minimapParams,
+    minimapRenderChanged,
   );
   const renderedCriticalPathResult = useDataSeries(
     state.dataQuery,
@@ -1179,6 +1338,17 @@ export default function App(): JSX.Element {
     ),
     [renderedTraceResult.data, selectedTraceID, state.core],
   );
+  // Parses the reduced-detail, full-domain trace consumed by TraceMinimap.
+  const renderedMinimapTrace = useMemo(
+    () =>
+      parseRenderedTrace(
+        renderedMinimapResult.data,
+        selectedTraceID,
+        state.core,
+        'causal-tracing.trace-minimap',
+      ),
+    [renderedMinimapResult.data, selectedTraceID, state.core],
+  );
   // Parses available hierarchy types for the display-options dropdown.
   const hierarchyOptions = useMemo(
     () => parseHierarchyOptions(hierarchyTypes.data, state.core),
@@ -1243,31 +1413,30 @@ export default function App(): JSX.Element {
     state.temporalDomainEnd,
     state.temporalDomainStart,
   ]);
-  // Defines main trace interactions: span clicks push focus, brushes/reset gestures
-  // update zoom, and category callouts are watched for hover highlighting.
+  // Defines detailed-trace interactions: span clicks push focus and category
+  // callouts are watched for hover highlighting. Temporal navigation belongs
+  // exclusively to TraceMinimap.
   const traceInteractions = useMemo(() => {
+    const hoveredCausalityEntryID = new DirectValueRef(
+      state.hoveredCausalityEntryID,
+      'hovered causality entry ID',
+    );
     return new Interactions()
       .withAction(
         new Action(TRACE_SPANS_TARGET, TRACE_SPAN_CLICK_ACTION, [
           new PushNonEmptyLocalStringLeft(state.focusSpanIDs, SPAN_ID_KEY),
+          new Clear([hoveredCausalityEntryID]),
         ]),
       )
-      .withAction(
-        new Action(TRACE_CHART_TARGET, TRACE_BRUSH_ACTION, [
-          new SetTemporalDomainFromLocal(
-            state.temporalDomainStart,
-            state.temporalDomainEnd,
-            () => renderedTraceFullDurationDomain(renderedTrace),
+      .withReaction(
+        new Reaction(
+          TRACE_SPANS_TARGET,
+          TRACE_HIGHLIGHT_REACTION,
+          new Includes(
+            new LocalValue(CAUSALITY_ENTRY_IDS_KEY),
+            hoveredCausalityEntryID,
           ),
-        ]),
-      )
-      .withAction(
-        new Action(TRACE_CHART_TARGET, TRACE_RESET_ZOOM_ACTION, [
-          new ResetTemporalDomain(
-            state.temporalDomainStart,
-            state.temporalDomainEnd,
-          ),
-        ]),
+        ),
       )
       .withWatch(
         new Watch(
@@ -1283,10 +1452,47 @@ export default function App(): JSX.Element {
   }, [
     state.calledOutCategoryID,
     state.focusSpanIDs,
-    renderedTrace,
-    state.temporalDomainEnd,
-    state.temporalDomainStart,
+    state.hoveredCausalityEntryID,
   ]);
+  // Connects minimap gestures to the tool-owned temporal Values and watches
+  // those Values so its viewport overlay updates without a backend round trip.
+  const minimapInteractions = useMemo(
+    () =>
+      new Interactions()
+        .withAction(
+          new Action(TRACE_MINIMAP_TARGET, TRACE_MINIMAP_SET_DOMAIN_ACTION, [
+            new SetTemporalDomainFromLocal(
+              state.temporalDomainStart,
+              state.temporalDomainEnd,
+              () => renderedTraceFullDurationDomain(renderedMinimapTrace),
+            ),
+          ]),
+        )
+        .withAction(
+          new Action(TRACE_MINIMAP_TARGET, TRACE_MINIMAP_RESET_DOMAIN_ACTION, [
+            new ResetTemporalDomain(
+              state.temporalDomainStart,
+              state.temporalDomainEnd,
+            ),
+          ]),
+        )
+        .withWatch(
+          new Watch(
+            TRACE_MINIMAP_VIEWPORT_WATCH,
+            new ValueMap(
+              new Map<string, Value>([
+                [TRACE_ZOOM_START_KEY, state.temporalDomainStart],
+                [TRACE_ZOOM_END_KEY, state.temporalDomainEnd],
+              ]),
+            ),
+          ),
+        ),
+    [
+      renderedMinimapTrace,
+      state.temporalDomainEnd,
+      state.temporalDomainStart,
+    ],
+  );
   // Maps keypress state to temporal zoom and pan operations over the rendered trace domain.
   const keypressInteractions = useMemo(() => {
     return new Interactions().withAction(
@@ -1329,18 +1535,49 @@ export default function App(): JSX.Element {
         ]),
       );
   }, [state.calledOutCategoryID, state.expandedCategoryIDs]);
-  // Defines focus-table navigation: clicking a causal "other span" pushes it onto
-  // the focused span stack.
+  // Defines focus-table navigation and hover coordination. Row hover writes a
+  // transient entry ID; the trace's set-membership reaction highlights whichever
+  // rendered bin represents that entry without requiring a backend refetch.
   const spanCausalityInteractions = useMemo(() => {
-    return new Interactions().withAction(
-      new Action('rows', 'click', [
-        new PushNonEmptyLocalStringLeft(state.focusSpanIDs, OTHER_SPAN_ID_KEY),
-      ]),
+    const hoveredCausalityEntryID = new DirectValueRef(
+      state.hoveredCausalityEntryID,
+      'hovered causality entry ID',
     );
-  }, [state.focusSpanIDs]);
+    return new Interactions()
+      .withAction(
+        new Action('rows', 'mouseover', [
+          new SetAction(
+            hoveredCausalityEntryID,
+            new LocalValue(CAUSALITY_ENTRY_ID_KEY),
+          ),
+        ]),
+      )
+      .withAction(
+        new Action('rows', 'mouseout', [
+          new Clear([hoveredCausalityEntryID]),
+        ]),
+      )
+      .withAction(
+        new Action('rows', 'click', [
+          new PushNonEmptyLocalStringLeft(state.focusSpanIDs, OTHER_SPAN_ID_KEY),
+          new Clear([hoveredCausalityEntryID]),
+        ]),
+      )
+      .withReaction(
+        new Reaction(
+          'rows',
+          'highlight',
+          new Equals(
+            new LocalValue(CAUSALITY_ENTRY_ID_KEY),
+            hoveredCausalityEntryID,
+          ),
+        ),
+      );
+  }, [state.focusSpanIDs, state.hoveredCausalityEntryID]);
 
   const clearSelectedTrace = (): void => {
     state.focusSpanIDs.val = [];
+    state.hoveredCausalityEntryID.val = '';
     state.search.val = '';
     state.draftSearch.val = '';
     state.criticalPathStart.val = DEFAULT_CRITICAL_PATH_START;
@@ -1365,6 +1602,7 @@ export default function App(): JSX.Element {
 
   const setCorpusPath = (nextCorpusPath: string): void => {
     state.focusSpanIDs.val = [];
+    state.hoveredCausalityEntryID.val = '';
     state.search.val = '';
     state.draftSearch.val = '';
     state.criticalPathStart.val = DEFAULT_CRITICAL_PATH_START;
@@ -1393,11 +1631,13 @@ export default function App(): JSX.Element {
       setFocusStackOpen(false);
     }
     state.focusSpanIDs.val = focusSpanIDs.slice(1);
+    state.hoveredCausalityEntryID.val = '';
   };
 
   const clearFocusSpans = (): void => {
     setFocusStackOpen(false);
     state.focusSpanIDs.val = [];
+    state.hoveredCausalityEntryID.val = '';
   };
 
   const resetZoom = (): void => {
@@ -1724,6 +1964,22 @@ export default function App(): JSX.Element {
               {renderedTraceResult.loading ? 'Loading' : 'Ready'}
             </span>
           </div>
+        </div>
+        <div className="trace-minimap-dock" aria-label="Trace overview">
+          {renderedMinimapTrace && measuredTraceWidthPx > 0 ? (
+            <TraceMinimap
+              trace={renderedMinimapTrace}
+              widthPx={measuredTraceWidthPx}
+              heightPx={60}
+              interactions={minimapInteractions}
+            />
+          ) : (
+            <div className="trace-minimap-empty">
+              {renderedMinimapResult.loading
+                ? 'Loading overview'
+                : 'No overview loaded'}
+            </div>
+          )}
         </div>
         {focusSpanIDs.length > 0 ? (
           <div className="focus-bar" aria-label="Focused span stack controls">

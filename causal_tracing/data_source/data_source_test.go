@@ -60,7 +60,7 @@ func traceIndexSource(corpusPath string, traceIndex int) queryTraceSource {
 			}
 			return map[string]*util.V{
 				corpusPathKey: util.StringValue(corpusPath),
-				traceIDKey:    util.StringValue(coll.Converted[traceIndex].RawTrace().TraceID),
+				traceIDKey:    util.StringValue(coll.Converted[traceIndex].TraceID()),
 			}
 		},
 	}

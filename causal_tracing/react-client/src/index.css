@@ -30,6 +30,9 @@
   --transformed-bg: #f2edf8;
   --modal-backdrop: rgb(32 33 36 / 28%);
   --modal-shadow: rgb(32 33 36 / 18%);
+  --minimap-shade: rgb(32 33 36 / 34%);
+  --minimap-viewport: #315f9d;
+  --minimap-marker-halo: #fff;
   min-height: 100vh;
   color: var(--text-primary);
   background: var(--app-bg);
@@ -62,6 +65,9 @@
   --transformed-bg: #3b2856;
   --modal-backdrop: rgb(2 6 23 / 66%);
   --modal-shadow: rgb(0 0 0 / 42%);
+  --minimap-shade: rgb(2 6 23 / 52%);
+  --minimap-viewport: #93c5fd;
+  --minimap-marker-halo: #111827;
   color-scheme: dark;
 }
 
@@ -243,14 +249,51 @@ textarea {
   margin-top: 28px;
 }
 
+.trace-minimap-dock {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 6px 0;
+  background: var(--app-bg);
+}
+
+.trace-minimap-dock > div {
+  overflow: hidden;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  background: var(--panel-bg);
+}
+
+.trace-minimap-dock canvas {
+  display: block;
+}
+
+.trace-minimap-dock .traceviz-minimap-shade {
+  fill: var(--minimap-shade);
+}
+
+.trace-minimap-dock .traceviz-minimap-viewport {
+  stroke: var(--minimap-viewport);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.trace-minimap-empty {
+  display: grid;
+  min-height: 60px;
+  place-items: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
 .compact-trace-panel {
   margin-top: 18px;
 }
 
 .trace-viewport {
-  min-height: 260px;
-  max-height: 520px;
-  overflow: auto;
+  overflow: visible;
   border: 1px solid var(--panel-border);
   border-radius: 6px;
   background: var(--panel-bg);
@@ -261,8 +304,7 @@ textarea {
 }
 
 .critical-path-viewport {
-  min-height: 160px;
-  max-height: 280px;
+  min-height: 0;
 }
 
 .focus-bar {

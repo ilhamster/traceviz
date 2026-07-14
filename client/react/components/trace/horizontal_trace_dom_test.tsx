@@ -1,14 +1,31 @@
-import { render } from "@testing-library/react";
+import { act, fireEvent, render } from "@testing-library/react";
 import { JSDOM } from "jsdom";
 import {
+  Action,
   AppCore,
+  Equals,
+  GlobalRef,
+  Interactions,
+  LocalValue,
+  Reaction,
+  StringValue,
+  Update,
   renderCategoryHierarchyForHorizontalSpans,
   renderHorizontalTraceSpans,
 } from "@traceviz/client-core";
-import { HorizontalTrace } from "./horizontal_trace.tsx";
+import {
+  HorizontalTrace,
+  TRACE_EDGES_TARGET,
+  TRACE_HIGHLIGHT_REACTION,
+  TRACE_SPAN_CLICK_ACTION,
+  TRACE_SPANS_TARGET,
+} from "./horizontal_trace.tsx";
 import { buildTestTrace } from "../../testcases/trace.ts";
 import { AppCoreContext } from "../../core/index.ts";
-import type { RenderedTraceEdge } from "@traceviz/client-core";
+import type {
+  RenderedTraceEdge,
+  RenderedTraceSpan,
+} from "@traceviz/client-core";
 import { RectangularCategoryHierarchyYAxis } from "../axes/category_hierarchy_y.tsx";
 
 // Provide a DOM for d3 + testing-library.
@@ -93,5 +110,125 @@ describe("HorizontalTrace", () => {
     ]);
     expect(errors).toEqual([]);
     errSub.unsubscribe();
+  });
+
+  it("dispatches ordinary span clicks", () => {
+    const appCore = new AppCore();
+    appCore.publish();
+    let spanClickCount = 0;
+    const interactions = new Interactions().withAction(
+      new Action(TRACE_SPANS_TARGET, TRACE_SPAN_CLICK_ACTION, [
+        new (class extends Update {
+          override update(): void {
+            spanClickCount++;
+          }
+
+          override get autoDocument(): string {
+            return "records a span click";
+          }
+        })(),
+      ]),
+    );
+
+    const { container } = render(
+      <AppCoreContext.Provider value={appCore}>
+        <HorizontalTrace
+          trace={buildTestTrace()}
+          widthPx={900}
+          transitionDurationMs={0}
+          interactions={interactions}
+        />
+      </AppCoreContext.Provider>,
+    );
+
+    const span = container.querySelector<SVGSVGElement>("g.spans > svg");
+    expect(span).not.toBeNull();
+    fireEvent.click(span!);
+    expect(spanClickCount).toBe(1);
+  });
+
+  it("reacts to generic span and edge highlight predicates", () => {
+    const appCore = new AppCore();
+    const highlightedRPC = new StringValue("");
+    const highlightedEdgeColor = new StringValue("");
+    appCore.globalState.set("highlighted_rpc", highlightedRPC);
+    appCore.globalState.set("highlighted_edge_color", highlightedEdgeColor);
+    const interactions = new Interactions()
+      .withReaction(
+        new Reaction(
+          TRACE_SPANS_TARGET,
+          TRACE_HIGHLIGHT_REACTION,
+          new Equals(
+            new LocalValue("rpc"),
+            new GlobalRef(appCore, "highlighted_rpc"),
+          ),
+        ),
+      )
+      .withReaction(
+        new Reaction(
+          TRACE_EDGES_TARGET,
+          TRACE_HIGHLIGHT_REACTION,
+          new Equals(
+            new LocalValue("primary_color"),
+            new GlobalRef(appCore, "highlighted_edge_color"),
+          ),
+        ),
+      );
+    appCore.publish();
+
+    const { container } = render(
+      <AppCoreContext.Provider value={appCore}>
+        <HorizontalTrace
+          trace={buildTestTrace()}
+          widthPx={900}
+          transitionDurationMs={0}
+          interactions={interactions}
+        />
+      </AppCoreContext.Provider>,
+    );
+
+    const renderedSpans = Array.from(
+      container.querySelectorAll<SVGSVGElement>("g.spans > svg"),
+    ).map((element) =>
+      (element as SVGSVGElement & { __data__?: RenderedTraceSpan }).__data__!,
+    );
+    const rpcB = renderedSpans.find(
+      (span) => span.properties.has("rpc") && span.properties.expectString("rpc") === "b",
+    );
+    const renderedEdges = Array.from(
+      container.querySelectorAll<SVGLineElement>("g.edges > line"),
+    ).map((element) =>
+      (element as SVGLineElement & { __data__?: RenderedTraceEdge }).__data__!,
+    );
+    const firstEdge = renderedEdges[0];
+    expect(rpcB).toBeDefined();
+    expect(firstEdge).toBeDefined();
+    expect(rpcB!.highlighted).toBe(false);
+    expect(firstEdge.highlighted).toBe(false);
+
+    act(() => {
+      highlightedRPC.val = "b";
+      highlightedEdgeColor.val = "#888888";
+    });
+    expect(rpcB!.highlighted).toBe(true);
+    expect(firstEdge.highlighted).toBe(true);
+    const rpcBElement = Array.from(
+      container.querySelectorAll<SVGSVGElement>("g.spans > svg"),
+    ).find(
+      (element) =>
+        (element as SVGSVGElement & { __data__?: RenderedTraceSpan }).__data__ ===
+        rpcB,
+    );
+    expect(rpcBElement?.querySelector("rect")?.style.filter).toContain(
+      "drop-shadow",
+    );
+
+    act(() => {
+      highlightedRPC.val = "";
+      highlightedEdgeColor.val = "";
+    });
+    expect(rpcB!.highlighted).toBe(false);
+    expect(firstEdge.highlighted).toBe(false);
+    expect(rpcBElement?.querySelector("rect")?.style.filter).toBe("");
   });
 });
